@@ -1,0 +1,88 @@
+# ============================================
+# INFRA MANAGEMENT APPLICATION
+# React + Vite + TypeScript + Frappe
+# ============================================
+
+# Node dependencies
+node_modules/
+.pnpm-store/
+.npm/
+
+# Frontend and backend build output
+dist/
+dist-backend/
+build/
+coverage/
+.vite/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Python virtual environments
+.venv/
+.venv-pptx/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary documents and Office lock files
+~$*
+.~lock.*
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# IDE and editor files
+.vscode/
+.idea/
+*.code-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+._*
+
+# Test artifacts
+playwright-report/
+test-results/
+.nyc_output/
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+
+# Local backups
+*.bak
+*.backup
+*.orig
+
+# Frappe Bench runtime files (if applicable)
+sites/
+config/pids/
+config/redis_*.conf
+
+# Local database files
+*.sqlite3
+*.db
