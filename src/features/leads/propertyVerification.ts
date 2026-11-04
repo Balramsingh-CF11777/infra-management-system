@@ -17,7 +17,7 @@ export type PropertyVerificationModule = {
   path: string;
 };
 
-/** Figma Site Verification Steps (optional before Submit). */
+/** Property Verification modules under the History Trail Property Verification stage. */
 export const PROPERTY_VERIFICATION_MODULES: PropertyVerificationModule[] = [
   {
     id: "property",
@@ -70,16 +70,19 @@ export function isPropertyDetailsModuleComplete(lead: Record<string, unknown>) {
     filled(lead.pin_code) &&
     (filled(lead.built_up_area_sqft) || filled(lead.carpet_area_sqft));
 
-  const commercialOk =
+  const holding = String(lead.rental_or_lease || "").trim();
+  const rentalOk =
+    holding === "Rental" &&
     filled(lead.monthly_rent) &&
     filled(lead.rent_per_sq_feet) &&
-    filled(lead.security_deposit_amount) &&
+    filled(lead.security_deposit_amount);
+  const leaseOk =
+    holding === "Lease" &&
     filled(lead.lease_period) &&
     filled(lead.lock_in_period) &&
-    filled(lead.lease_exit_notice_period_from_lessee) &&
-    filled(lead.brokerage_applicable);
+    filled(lead.lease_exit_notice_period_from_lessee);
 
-  return locationOk && commercialOk;
+  return locationOk && (rentalOk || leaseOk);
 }
 
 export function isOwnerDetailsModuleComplete(lead: Record<string, unknown>) {

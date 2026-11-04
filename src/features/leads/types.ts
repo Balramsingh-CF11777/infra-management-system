@@ -112,6 +112,35 @@ export interface LeadHomeData {
   leads: LeadSummary[];
 }
 
+export type RibPipelineBucketId =
+  | "lead_creation"
+  | "site_verification"
+  | "design_sketch"
+  | "cad_consent"
+  | "ll_agreement"
+  | "infra_readiness";
+
+export interface RibPipelineBucket {
+  id: RibPipelineBucketId | string;
+  label: string;
+  count: number;
+}
+
+export interface RibAssignedTask {
+  id: string;
+  doctype: string;
+  property_id: string;
+  location: string;
+  task: string;
+  workflow_state: string;
+  href: string;
+}
+
+export interface RibPipelineOverview {
+  buckets: RibPipelineBucket[];
+  assigned_tasks: RibAssignedTask[];
+}
+
 export interface LeadCreatePayload {
   branch_opening_requirement: string;
   location_details?: string;
@@ -125,6 +154,7 @@ export interface LeadCreatePayload {
   regional_infra_business_partner?: string;
   area_regional_business_manager?: string;
   location_captured_by_role?: string;
+  capture_checklist?: Record<string, boolean>;
   documents?: Array<{ document_type: string; document_attachment?: string }>;
 }
 

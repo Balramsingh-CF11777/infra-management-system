@@ -1,7 +1,8 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Search } from "lucide-react";
+import { Search } from "lucide-react";
+import { BackButton } from "@/components/common/BackButton";
 import { getLeadHome } from "@/api/leads";
 import { queryKeys } from "@/api/keys";
 import { EmptyState, SkeletonBlock } from "@/components/common/EmptyState";
@@ -44,9 +45,7 @@ export function GeoStateRegionsPage() {
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-3">
-        <Link to="/chola360/leads" className="ims-btn-ghost rounded-lg p-2 no-underline" aria-label="Back">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
+        <BackButton className="ims-btn-ghost rounded-lg p-2" fallback="/chola360/leads" iconClassName="h-5 w-5" />
         <div className="min-w-0">
           <h1 className="truncate text-[17px] font-semibold text-ims-ink md:text-[20px]">{geoState} Region</h1>
           <p className="text-xs text-slate-500">Regional Infra Business Partner · choose an area</p>

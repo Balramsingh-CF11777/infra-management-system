@@ -3,22 +3,22 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { applyLeadWorkflowAction, getLeadDetail, saveLeadSiteVerification } from "@/api/leads";
 import { queryKeys } from "@/api/keys";
+import { useSmartBack } from "@/components/common/BackButton";
 import { EmptyState, SkeletonBlock } from "@/components/common/EmptyState";
 import { Breadcrumb, CardHeader } from "@/components/common/PageHeader";
 import { LeadCreatedSuccessSheet, leadPlaceLabel } from "@/features/leads/LeadCreatedSuccessSheet";
 import { sectionLocked } from "@/features/leads/sectionReview";
 import { ShortlistingChecklist } from "@/features/leads/ShortlistingChecklist";
-import { SITE_CHECK_FLAGS, SITE_CHECK_YES, emptyShortlisting, isRimExtraKey, shortlistingFrom, siteCheckCardsForLead, siteCheckYesForLead } from "@/features/leads/siteVerification";
+import { SITE_CHECK_FLAGS, emptyShortlisting, shortlistingComplete, shortlistingFromLead, siteCheckYesForLead } from "@/features/leads/siteVerification";
 import { ApiError } from "@/types/api";
 
 export function RimSiteVerificationPage() {
   const { id = "" } = useParams();
   const name = decodeURIComponent(id);
   const navigate = useNavigate();
+  const goBack = useSmartBack("/chola360/leads");
   const queryClient = useQueryClient();
-  const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [shortlist, setShortlist] = useState<Record<string, boolean>>(emptyShortlisting);
-  const [yesNo, setYesNo] = useState<Record<string, string>>({});
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [hydrated, setHydrated] = useState(false);
@@ -33,18 +33,7 @@ export function RimSiteVerificationPage() {
 
   useEffect(() => {
     if (!detail.data || hydrated) return;
-    const lead = detail.data as Record<string, unknown>;
-    const nextFlags: Record<string, boolean> = {};
-    for (const item of SITE_CHECK_FLAGS) {
-      nextFlags[item.key] = Boolean(Number(lead[item.key]));
-    }
-    const nextYes: Record<string, string> = {};
-    for (const item of SITE_CHECK_YES) {
-      nextYes[item.key] = String(lead[item.key] || "").trim();
-    }
-    setChecks(nextFlags);
-    setShortlist(shortlistingFrom(lead.shortlisting_checklist));
-    setYesNo(nextYes);
+    setShortlist(shortlistingFromLead(detail.data as Record<string, unknown>));
     setHydrated(true);
   }, [detail.data, hydrated]);
 
@@ -66,16 +55,12 @@ export function RimSiteVerificationPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Action failed"),
   });
 
-  function mandatoryIncomplete() {
-    if (SITE_CHECK_FLAGS.some((item) => !checks[item.key])) return true;
-    const yesChecks = siteCheckYesForLead(detail.data as Record<string, unknown>);
-    return yesChecks.some((item) => yesNo[item.key] !== "Yes");
-  }
-
   function payloadChecks() {
+    const yesFields = siteCheckYesForLead((detail.data || {}) as Record<string, unknown>);
     return {
-      ...Object.fromEntries(SITE_CHECK_FLAGS.map((item) => [item.key, Boolean(checks[item.key])])),
-      ...Object.fromEntries(SITE_CHECK_YES.map((item) => [item.key, yesNo[item.key] || ""])),
+      ...Object.fromEntries(SITE_CHECK_FLAGS.map((item) => [item.key, true])),
+      ...Object.fromEntries(yesFields.map((item) => [item.key, "Yes"])),
+      ...shortlist,
       shortlisting_checklist: JSON.stringify(shortlist),
     };
   }
@@ -88,8 +73,8 @@ export function RimSiteVerificationPage() {
   async function onApprove(event: FormEvent) {
     event.preventDefault();
     setError("");
-    if (mandatoryIncomplete()) {
-      setError("Mandatory checks incomplete. Put on Hold or Reject, or complete all checks (including Yes/No).");
+    if (!shortlistingComplete(shortlist)) {
+      setError("Complete Onsite Vetting before Approve.");
       return;
     }
     try {
@@ -116,7 +101,6 @@ export function RimSiteVerificationPage() {
   }
 
   const lead = detail.data;
-  const yesChecks = siteCheckYesForLead(lead as Record<string, unknown>);
 
   return (
     <section>
@@ -126,7 +110,7 @@ export function RimSiteVerificationPage() {
           title="Site Verification"
           subtitle={`${String(lead.property_id || lead.name)} · ${String(lead.location_details || "")}`}
         >
-          <button type="button" className="ims-btn-secondary min-h-10 px-4" onClick={() => navigate(-1)}>
+          <button type="button" className="ims-btn-secondary min-h-10 px-4" onClick={goBack}>
             Back
           </button>
         </CardHeader>
@@ -136,30 +120,10 @@ export function RimSiteVerificationPage() {
             <h2 className="mb-3 text-[15px] font-semibold text-ims-ink md:text-[17px]">Onsite Vetting</h2>
             <div className="mb-4 space-y-4">
               <ShortlistingChecklist
-                disabled={sectionLocked(lead as Record<string, unknown>, "Site Verification")}
+                title="Onsite Vetting"
+                disabled={sectionLocked(lead as Record<string, unknown>, "Onsite Vetting")}
                 value={shortlist}
                 onToggle={(key) => setShortlist((prev) => ({ ...prev, [key]: !prev[key] }))}
-              />
-              <ShortlistingChecklist
-                disabled={sectionLocked(lead as Record<string, unknown>, "Site Verification")}
-                title="Site checks"
-                items={siteCheckCardsForLead(lead as Record<string, unknown>)}
-                value={{
-                  ...checks,
-                  ...shortlist,
-                  ...Object.fromEntries(yesChecks.map((item) => [item.key, yesNo[item.key] === "Yes"])),
-                }}
-                onToggle={(key) => {
-                  if (isRimExtraKey(key)) {
-                    setShortlist((prev) => ({ ...prev, [key]: !prev[key] }));
-                    return;
-                  }
-                  if (yesChecks.some((item) => item.key === key)) {
-                    setYesNo((prev) => ({ ...prev, [key]: prev[key] === "Yes" ? "No" : "Yes" }));
-                    return;
-                  }
-                  setChecks((prev) => ({ ...prev, [key]: !prev[key] }));
-                }}
               />
             </div>
           </div>

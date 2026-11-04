@@ -1,25 +1,28 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getGeoLocation } from "@/api/geo";
-import { createLead, listRibpOptions } from "@/api/leads";
+import { createProspect, listRibpOptions, uploadProspectDocument } from "@/api/leads";
 import { getRecordList } from "@/api/records";
 import { queryKeys } from "@/api/keys";
 import { ApiError } from "@/types/api";
 import { SkeletonBlock } from "@/components/common/EmptyState";
 import { FieldSelect } from "@/components/common/FieldSelect";
+import { FloatField, floatAreaClass, floatControlClass } from "@/components/common/FloatField";
 import { GeoMapField } from "@/components/common/GeoMapField";
 import { Breadcrumb, CardHeader } from "@/components/common/PageHeader";
 import { X } from "lucide-react";
-import { LeadCreatedSuccessSheet } from "@/features/leads/LeadCreatedSuccessSheet";
+import { CREATE_LEAD_CHECKS, CreateLeadCapture, type CreateLeadPhoto } from "@/features/leads/CreateLeadCapture";
 import type { RibpOption } from "@/features/leads/types";
 import { formatCoordinate, toMapGeoJson } from "@/lib/geo";
+import { ARBM_ROLE } from "@/lib/arbmAccess";
+import { RIBP_ROLE } from "@/lib/ribAccess";
 import { useSession } from "@/stores/session";
 import type { UserContext } from "@/types/api";
 
 const ENTRANCE_OPTIONS = ["North", "South", "East", "West", "North-East", "North-West", "South-East", "South-West"];
 
-const LOCATION_ROLES = ["Area Regional Business Manager", "Regional Infra Business Partner"] as const;
+const LOCATION_ROLES = [ARBM_ROLE, RIBP_ROLE] as const;
 type LocationRole = (typeof LOCATION_ROLES)[number];
 
 function isLocationRole(value: string): value is LocationRole {
@@ -67,6 +70,7 @@ function optionMatchesUser(row: RibpOption, user: UserContext): boolean {
 
 export function CreateLeadPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const sessionUser = useSession((state) => state.user);
   const activeRole = useSession((state) => state.activeRole);
   const roleEdited = useRef(false);
@@ -75,22 +79,18 @@ export function CreateLeadPage() {
   const [entrance, setEntrance] = useState("");
   const [locationRole, setLocationRole] = useState<LocationRole | "">("");
   const [locationOwner, setLocationOwner] = useState("");
-  const [address, setAddress] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [geoLocation, setGeoLocation] = useState("");
   const [mapValue, setMapValue] = useState("");
   const [error, setError] = useState("");
+  const [geoNote, setGeoNote] = useState("");
+  const [photos, setPhotos] = useState<CreateLeadPhoto[]>([]);
+  const [captureChecks, setCaptureChecks] = useState<Record<string, boolean>>({});
   const [resolvingAddress, setResolvingAddress] = useState(false);
   const [saving, setSaving] = useState(false);
   const geocodeSeq = useRef(0);
   const geocodeTimer = useRef<number | null>(null);
-  const [created, setCreated] = useState<{
-    name: string;
-    property_id: string;
-    location_label: string;
-  } | null>(null);
-
   const openRequirements = useQuery({
     queryKey: queryKeys.documentList("New Branch Details", { workflow_state: "Submit", page_length: 50 }),
     queryFn: () =>
@@ -123,7 +123,7 @@ export function CreateLeadPage() {
         product_line: String(selectedRequirement?.product_line || "") || undefined,
         region: String(selectedRequirement?.region || "") || undefined,
       }),
-    enabled: locationRole === "Regional Infra Business Partner",
+    enabled: locationRole === RIBP_ROLE,
     staleTime: 30_000,
   });
 
@@ -152,7 +152,7 @@ export function CreateLeadPage() {
   const entranceOptions = useMemo(() => ENTRANCE_OPTIONS.map((opt) => ({ value: opt, label: opt })), []);
 
   const locationPeople = useMemo(() => {
-    if (locationRole === "Area Regional Business Manager") {
+    if (locationRole === ARBM_ROLE) {
       if (!sessionUser?.user) return [];
       return [
         {
@@ -176,8 +176,8 @@ export function CreateLeadPage() {
       ...rows,
     ];
   }, [activeRole, locationRole, ribpQuery.data?.items, sessionUser]);
-  const locationPeopleLoading = locationRole === "Regional Infra Business Partner" && ribpQuery.isLoading;
-  const locationPeopleError = locationRole === "Regional Infra Business Partner" ? ribpQuery.error : null;
+  const locationPeopleLoading = locationRole === RIBP_ROLE && ribpQuery.isLoading;
+  const locationPeopleError = locationRole === RIBP_ROLE ? ribpQuery.error : null;
 
   useEffect(() => {
     if (!locationRole || !sessionUser || locationPeopleLoading) return;
@@ -186,7 +186,7 @@ export function CreateLeadPage() {
       setLocationOwner((current) => current || match.name);
       return;
     }
-    if (locationRole !== "Regional Infra Business Partner") return;
+    if (locationRole !== RIBP_ROLE) return;
     const suggested = ribpQuery.data?.suggested || "";
     if (!suggested) return;
     const names = new Set(locationPeople.map((row) => row.name));
@@ -210,14 +210,14 @@ export function CreateLeadPage() {
   );
 
   const create = useMutation({
-    mutationFn: createLead,
+    mutationFn: createProspect,
   });
 
   function applyResolvedAddress(label: string) {
     const next = label.trim();
     if (!next) return;
     setGeoLocation(next);
-    setAddress(next);
+    setGeoNote("");
   }
 
   function applyCoordinates(lat: number, lng: number, label?: string) {
@@ -236,10 +236,15 @@ export function CreateLeadPage() {
     geocodeTimer.current = window.setTimeout(() => {
       void getGeoLocation(lat, lng)
         .then((label) => {
-          if (seq !== geocodeSeq.current || !label) return;
-          applyResolvedAddress(label);
+          if (seq !== geocodeSeq.current) return;
+          if (label) applyResolvedAddress(label);
+          else setGeoNote("The map pin was saved, but the geo location text could not be resolved. Type it in the box.");
         })
-        .catch(() => undefined)
+        .catch(() => {
+          if (seq === geocodeSeq.current) {
+            setGeoNote("The map pin was saved, but the geo location text could not be resolved. Type it in the box.");
+          }
+        })
         .finally(() => {
           if (seq === geocodeSeq.current) setResolvingAddress(false);
         });
@@ -293,6 +298,14 @@ export function CreateLeadPage() {
       setError("Enter latitude and longitude, or pin the location on the map.");
       return;
     }
+    if (!photos.length) {
+      setError("Capture or attach at least one site photo.");
+      return;
+    }
+    if (!CREATE_LEAD_CHECKS.every((label) => captureChecks[label])) {
+      setError("Complete the checklist below the geo location.");
+      return;
+    }
     const selected = options.find((row) => row.name === requirement);
     setSaving(true);
     try {
@@ -301,35 +314,39 @@ export function CreateLeadPage() {
         location_details: locationDetails || String(selected?.location_details || ""),
         product_line: String(selected?.product_line || ""),
         main_entrance_direction: entrance || undefined,
-        complete_address_of_the_property: address || undefined,
+        complete_address_of_the_property: geoLocation || undefined,
         geo_latitude: lat || undefined,
         geo_longitude: lng || undefined,
         geo_location: geoLocation || undefined,
         map: mapValue || toMapGeoJson(lat, lng),
         location_captured_by_role: locationRole,
         regional_infra_business_partner:
-          locationRole === "Regional Infra Business Partner" ? locationOwner : undefined,
+          locationRole === RIBP_ROLE ? locationOwner : undefined,
         area_regional_business_manager:
-          locationRole === "Area Regional Business Manager" ? locationOwner : undefined,
+          locationRole === ARBM_ROLE ? locationOwner : undefined,
+        capture_checklist: captureChecks,
       });
-      const label =
-        (locationDetails || String(selected?.location_details || "")).trim() ||
-        String(selected?.location_details || requirement || "").trim();
-      setCreated({
-        name: result.name,
-        property_id: result.property_id || result.name,
-        location_label: label ? (label.toLowerCase().includes("branch") ? label : `${label} Branch`) : "Property Lead",
+      const uploadFailures: string[] = [];
+      for (let index = 0; index < photos.length; index += 1) {
+        const slot = `Capture ${index + 1}`;
+        try {
+          await uploadProspectDocument(result.name, slot, photos[index].file);
+        } catch {
+          uploadFailures.push(slot);
+        }
+      }
+      void queryClient.invalidateQueries({ queryKey: ["leadProspectList"] });
+      navigate(`/chola360/prospects/${encodeURIComponent(result.name)}/site-images`, {
+        replace: true,
+        state: uploadFailures.length
+          ? { uploadError: `These photos did not upload: ${uploadFailures.join(", ")}. Add them again here.` }
+          : undefined,
       });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not create the lead.");
+      setError(err instanceof ApiError ? err.message : "Could not save the Lead Prospect. A Lead Request was not created.");
     } finally {
       setSaving(false);
     }
-  }
-
-  function onCreatedDone() {
-    if (!created) return;
-    navigate(`/chola360/leads/${encodeURIComponent(created.name)}/site-images`, { replace: true });
   }
 
   return (
@@ -338,7 +355,7 @@ export function CreateLeadPage() {
       <div className="ims-card w-full min-w-0 max-w-full overflow-hidden">
         <CardHeader
           title="Create Property Lead"
-          subtitle="Capture a competing property under an open New Branch requirement. Site photos are added on the next screen."
+          subtitle="Pin the location and capture a photo. Proceed opens Site Image Capture. The lead is created after the 17-point checklist."
           subtitleClassName="mt-0.5 hidden text-sm text-slate-500 lg:block"
         >
           <Link
@@ -360,70 +377,72 @@ export function CreateLeadPage() {
             className="grid w-full min-w-0 max-w-full grid-cols-1 gap-4 border-t border-ims-line px-4 py-4 sm:px-5 sm:py-5 lg:grid-cols-2"
             onSubmit={onSubmit}
           >
-            <label className="block min-w-0 max-w-full space-y-1.5 lg:col-span-2">
-              <span className="text-sm font-semibold text-ims-ink">Branch opening requirement</span>
+            <div className="min-w-0 max-w-full lg:col-span-2">
               <FieldSelect
+                floated
+                label="Branch opening requirement"
                 value={requirement}
                 required
-                placeholder="Select open NBD…"
+                placeholder="Select"
                 emptyMessage="No open NBD requirements found."
                 options={requirementOptions}
                 onChange={(next) => {
                   setRequirement(next);
-                  if (locationRole === "Regional Infra Business Partner") setLocationOwner("");
+                  if (locationRole === RIBP_ROLE) setLocationOwner("");
                   const row = options.find((item) => item.name === next);
                   if (row?.location_details) setLocationDetails(String(row.location_details));
                 }}
               />
               {options.length === 0 ? (
-                <span className="block text-xs text-amber-700">
+                <span className="mt-1.5 block text-xs text-amber-700">
                   No open requirements without a Proposed Branch. Submit a New Branch Details with “Select via Lead Request”
                   first.
                 </span>
               ) : null}
-            </label>
+            </div>
 
-            <label className="block min-w-0 max-w-full space-y-1.5">
-              <span className="text-sm font-semibold text-ims-ink">Branch / location label</span>
+            <FloatField label="Branch Location">
               <input
-                className="ims-field"
+                className={floatControlClass}
                 value={locationDetails}
                 onChange={(e) => setLocationDetails(e.target.value)}
-                placeholder="e.g. Ekkatuthangal"
+                placeholder="Select"
               />
-            </label>
+            </FloatField>
 
-            <label className="block min-w-0 max-w-full space-y-1.5">
-              <span className="text-sm font-semibold text-ims-ink">Main entrance direction</span>
-              <FieldSelect value={entrance} placeholder="Select…" options={entranceOptions} onChange={setEntrance} />
-            </label>
+            <FieldSelect
+              floated
+              label="Main entrance direction"
+              value={entrance}
+              placeholder="Select"
+              options={entranceOptions}
+              onChange={setEntrance}
+            />
 
-            <label className="block min-w-0 max-w-full space-y-1.5 lg:col-span-2">
-              <span className="break-words text-sm font-semibold text-ims-ink">Who captures the location</span>
+            <FieldSelect
+              floated
+              label="Who captures the location"
+              value={locationRole}
+              required
+              placeholder="Select"
+              options={LOCATION_ROLES.map((role) => ({ value: role, label: role }))}
+              onChange={(next) => {
+                roleEdited.current = true;
+                setLocationRole(next as LocationRole);
+                setLocationOwner("");
+              }}
+            />
+
+            <div className="min-w-0 max-w-full">
               <FieldSelect
-                value={locationRole}
-                required
-                placeholder="Select role"
-                options={LOCATION_ROLES.map((role) => ({ value: role, label: role }))}
-                onChange={(next) => {
-                  roleEdited.current = true;
-                  setLocationRole(next as LocationRole);
-                  setLocationOwner("");
-                }}
-              />
-            </label>
-
-            <label className="block min-w-0 max-w-full space-y-1.5 lg:col-span-2">
-              <span className="break-words text-sm font-semibold text-ims-ink">{locationRole || "Person"}</span>
-              <FieldSelect
+                floated
+                label={locationRole || "Person"}
                 value={locationOwner}
                 required
                 disabled={!locationRole || locationPeopleLoading}
-                placeholder={
-                  !locationRole ? "Select a role first" : locationPeopleLoading ? "Loading people…" : "Select person…"
-                }
+                placeholder={!locationRole ? "Select" : locationPeopleLoading ? "Loading people…" : "Select"}
                 emptyMessage={
-                  locationRole === "Area Regional Business Manager"
+                  locationRole === ARBM_ROLE
                     ? "The signed-in user could not be resolved."
                     : "No Regional Infra Business Partner is mapped for this requirement."
                 }
@@ -431,27 +450,16 @@ export function CreateLeadPage() {
                 onChange={setLocationOwner}
               />
               {locationPeopleError ? (
-                <span className="block text-xs text-rose-600">
+                <span className="mt-1.5 block text-xs text-rose-600">
                   {locationPeopleError instanceof ApiError
                     ? locationPeopleError.message
                     : "Could not load people for this role."}
                 </span>
-              ) : (
-                <span className="block text-xs text-slate-500">
-                  This person enters the latitude and longitude, or pins the location, while the lead is still a draft.
-                </span>
-              )}
-            </label>
+              ) : null}
+            </div>
 
-            <section className="min-w-0 max-w-full space-y-3 overflow-hidden rounded-2xl border border-ims-line p-3 sm:p-4 lg:col-span-2">
-              <div>
-                <h3 className="text-sm font-semibold text-ims-primary">Map location</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  Required on the draft. Type latitude and longitude, or pin the point on the map. After Approve, this
-                  pin is shown above the History Trail.
-                </p>
-              </div>
-
+            <label className="block min-w-0 max-w-full space-y-1.5 lg:col-span-2">
+              <span className="text-sm font-semibold text-ims-ink">Map location</span>
               <GeoMapField
                 value={mapValue}
                 editable
@@ -460,71 +468,73 @@ export function CreateLeadPage() {
                 frameClassName="h-44 max-w-full sm:h-56"
                 className="min-w-0 max-w-full [&_.leaflet-container]:max-w-full [&_.leaflet-control-attribution]:max-w-[65%] [&_.leaflet-control-attribution]:truncate"
                 address={geoLocation || null}
-                onChange={(_geoJson, point) => applyCoordinates(point.latitude, point.longitude)}
+                onChange={(_geoJson, point) => {
+                  applyCoordinates(point.latitude, point.longitude);
+                  resolveAddress(point.latitude, point.longitude);
+                }}
                 onAddressChange={(label) => {
+                  if (!label.trim()) return;
                   geocodeSeq.current += 1;
                   if (geocodeTimer.current) window.clearTimeout(geocodeTimer.current);
                   setResolvingAddress(false);
                   applyResolvedAddress(label);
                 }}
               />
-
-              <div className="grid min-w-0 grid-cols-2 gap-3">
-                <label className="block min-w-0 space-y-1.5">
-                  <span className="text-sm font-semibold text-ims-ink">Latitude</span>
-                  <input
-                    className="ims-field"
-                    inputMode="decimal"
-                    required
-                    value={latitude}
-                    onChange={(e) => onManualCoordChange(e.target.value, longitude)}
-                    placeholder="e.g. 13.010800"
-                  />
-                </label>
-                <label className="block min-w-0 space-y-1.5">
-                  <span className="text-sm font-semibold text-ims-ink">Longitude</span>
-                  <input
-                    className="ims-field"
-                    inputMode="decimal"
-                    required
-                    value={longitude}
-                    onChange={(e) => onManualCoordChange(latitude, e.target.value)}
-                    placeholder="e.g. 80.212400"
-                  />
-                </label>
-              </div>
-            </section>
-
-            <label className="block min-w-0 max-w-full space-y-1.5 lg:col-span-2">
-              <span className="text-sm font-semibold text-ims-ink">Property address</span>
-              <textarea
-                className="ims-field min-h-[96px]"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Complete address of the property"
-              />
-              {resolvingAddress ? (
-                <span className="block text-xs text-slate-500">Filling the address from the map pin…</span>
-              ) : null}
             </label>
+
+            <FloatField label="Latitude">
+              <input
+                className={floatControlClass}
+                inputMode="decimal"
+                required
+                value={latitude}
+                onChange={(e) => onManualCoordChange(e.target.value, longitude)}
+                placeholder="e.g. 13.010800"
+              />
+            </FloatField>
+            <FloatField label="Longitude">
+              <input
+                className={floatControlClass}
+                inputMode="decimal"
+                required
+                value={longitude}
+                onChange={(e) => onManualCoordChange(latitude, e.target.value)}
+                placeholder="e.g. 80.212400"
+              />
+            </FloatField>
+
+            <div className="min-w-0 max-w-full self-start lg:col-span-2">
+              <FloatField label="Geo location" multiline>
+                <textarea
+                  className={floatAreaClass}
+                  rows={2}
+                  value={geoLocation}
+                  onChange={(e) => setGeoLocation(e.target.value)}
+                  placeholder="Address from the map pin"
+                />
+              </FloatField>
+              {geoNote && !resolvingAddress ? (
+                <span className="mt-1.5 block text-xs text-amber-700">{geoNote}</span>
+              ) : null}
+            </div>
+
+            <CreateLeadCapture
+              photos={photos}
+              onPhotos={setPhotos}
+              checks={captureChecks}
+              onToggle={(label) => setCaptureChecks((current) => ({ ...current, [label]: !current[label] }))}
+            />
 
             {error ? <p className="text-sm text-rose-600 lg:col-span-2">{error}</p> : null}
 
             <div className="min-w-0 lg:col-span-2">
               <button type="submit" className="ims-btn-primary w-full disabled:opacity-50 sm:w-auto" disabled={saving || create.isPending}>
-                {saving || create.isPending ? "Creating…" : "Save Draft Lead"}
+                {saving || create.isPending ? "Saving…" : "Proceed"}
               </button>
             </div>
           </form>
         )}
       </div>
-
-      <LeadCreatedSuccessSheet
-        open={Boolean(created)}
-        locationLabel={created?.location_label || ""}
-        propertyId={created?.property_id || ""}
-        onDone={onCreatedDone}
-      />
     </section>
   );
 }

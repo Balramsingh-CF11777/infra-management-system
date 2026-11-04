@@ -1,12 +1,15 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { applyLeadWorkflowAction, getLeadDetail } from "@/api/leads";
+import { applyLeadWorkflowAction, applySectionReview, getLeadDetail } from "@/api/leads";
 import { queryKeys } from "@/api/keys";
+import { useSmartBack } from "@/components/common/BackButton";
 import { EmptyState, SkeletonBlock } from "@/components/common/EmptyState";
 import { Breadcrumb, CardHeader } from "@/components/common/PageHeader";
 import { SiteImageThumb } from "@/components/common/SiteImageThumb";
 import { SITE_IMAGE_SLOTS, extraSiteImageSlots } from "@/features/leads/siteImageSlots";
 import { LeadCreatedSuccessSheet, leadPlaceLabel } from "@/features/leads/LeadCreatedSuccessSheet";
+import { PropertyReworkSheet } from "@/features/leads/PropertyReworkSheet";
+import { REVIEW_SECTIONS } from "@/features/leads/sectionReview";
 import { isSiteVerificationComplete, missingSiteVerificationLabels } from "@/features/leads/siteVerification";
 import { ApiError } from "@/types/api";
 import { useMemo, useState } from "react";
@@ -15,10 +18,13 @@ export function LeadDetailPage() {
   const { id = "" } = useParams();
   const name = decodeURIComponent(id);
   const navigate = useNavigate();
+  const goBack = useSmartBack("/chola360/leads");
   const queryClient = useQueryClient();
   const [comment, setComment] = useState("");
   const [message, setMessage] = useState("");
   const [approvedOpen, setApprovedOpen] = useState(false);
+  const [reworkOpen, setReworkOpen] = useState(false);
+  const [reworkError, setReworkError] = useState("");
   const [proposedBranch, setProposedBranch] = useState("");
 
   const detail = useQuery({
@@ -87,7 +93,7 @@ export function LeadDetailPage() {
           subtitle={`${String(lead.property_id || lead.name)} · ${state}`}
         >
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="ims-btn-secondary min-h-10 px-4" onClick={() => navigate(-1)}>
+            <button type="button" className="ims-btn-secondary min-h-10 px-4" onClick={goBack}>
               Back
             </button>
             {proposed ? (
@@ -213,7 +219,10 @@ export function LeadDetailPage() {
               type="button"
               className="ims-btn-secondary"
               disabled={action.isPending}
-              onClick={() => action.mutate({ name, action: "Send for Re-Work", comment })}
+              onClick={() => {
+                setReworkError("");
+                setReworkOpen(true);
+              }}
             >
               Re-Work
             </button>
@@ -230,6 +239,32 @@ export function LeadDetailPage() {
       )}
 
       {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+      <PropertyReworkSheet
+        open={reworkOpen}
+        propertyId={String(lead.property_id || lead.name || "")}
+        location={String(lead.location_details || "")}
+        ribpName={String(lead.ribp_full_name || "")}
+        ribpCode={String(lead.ribp_employee_code || "")}
+        sections={REVIEW_SECTIONS}
+        defaultSection="Onsite Vetting"
+        pending={action.isPending}
+        error={reworkError}
+        onCancel={() => {
+          if (!action.isPending) setReworkOpen(false);
+        }}
+        onSend={(remarks, section) => {
+          setReworkError("");
+          void applySectionReview({ name, section: section || "Onsite Vetting", action: "Re-Work", comment: remarks })
+            .then(async () => {
+              setReworkOpen(false);
+              setMessage("Sent for re-work.");
+              await queryClient.invalidateQueries({ queryKey: queryKeys.leadDetail(name) });
+            })
+            .catch((err: unknown) => {
+              setReworkError(err instanceof ApiError ? err.message : "Could not send this section for re-work.");
+            });
+        }}
+      />
       <LeadCreatedSuccessSheet
         open={approvedOpen}
         variant="approved"

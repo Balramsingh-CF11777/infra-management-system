@@ -1,4 +1,7 @@
+import { INDIA_STATES } from "@/features/leads/indiaStates";
+
 export type PackWhen = { key: string; equals: string };
+export type PackRule = PackWhen | PackWhen[];
 
 export type PackField = {
   key: string;
@@ -6,8 +9,8 @@ export type PackField = {
   kind: "text" | "textarea" | "select" | "number";
   options: string[];
   wide?: boolean;
-  showWhen?: PackWhen;
-  requiredWhen?: PackWhen;
+  showWhen?: PackRule;
+  requiredWhen?: PackRule;
 };
 
 export const PROPERTY_PACK: PackField[] = [
@@ -15,7 +18,7 @@ export const PROPERTY_PACK: PackField[] = [
   { key: "proposed_floor_level", label: "Proposed Floor Level", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "main_entrance_direction", label: "Main Entrance Direction", kind: "select", options: ["North", "South", "East", "West", "North-East", "North-West", "South-East", "South-West"], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "pin_code", label: "Pin Code (Number)", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "state", label: "State", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
+  { key: "state", label: "State", kind: "select", options: [...INDIA_STATES], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "shop_numbers", label: "Shop Numbers", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "geo_latitude", label: "Geo Latitude", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "geo_longitude", label: "Geo Longitude", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
@@ -25,31 +28,35 @@ export const PROPERTY_PACK: PackField[] = [
   { key: "bound_by_west", label: "Bound By West", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "built_up_area_sqft", label: "Built Up Area Sqft", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "carpet_area_sqft", label: "Carpet Area Sqft", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "basis_of_rent_calculation", label: "Basis Of Rent Calculation", kind: "select", options: ["Lumpsum", "Sqft Basis"], wide: false, showWhen: undefined, requiredWhen: undefined },
+  { key: "rental_or_lease", label: "Rental or Lease", kind: "select", options: ["Rental", "Lease"], wide: false, showWhen: undefined, requiredWhen: undefined },
+  { key: "basis_of_rent_calculation", label: "Basis Of Rent Calculation", kind: "select", options: ["Lumpsum", "Sqft Basis"], wide: false, showWhen: { key: "rental_or_lease", equals: "Rental" }, requiredWhen: undefined },
 ];
 
+const RENTAL = { key: "rental_or_lease", equals: "Rental" } as const;
+const LEASE = { key: "rental_or_lease", equals: "Lease" } as const;
+
 export const COMMERCIAL_PACK: PackField[] = [
-  { key: "monthly_rent", label: "Monthly Rent ", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "security_deposit_amount", label: "Security Deposit Amount", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "maintenance", label: "Maintenance", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "rent_per_sq_feet", label: "Rent Per Sq Feet", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "lock_in_period", label: "Lock In Period", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "stamp_duty_and_legal_expense_sharing_ratio_for_registration", label: "Stamp Duty & Legal Expense Sharing Ratio For Registration", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "is_advance_amount_applicable", label: "Is Advance Amount Applicable", kind: "select", options: ["Yes", "No"], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "advance_rent_amount", label: "Advance Rent Amount", kind: "number", options: [], wide: false, showWhen: { key: "is_advance_amount_applicable", equals: "Yes" }, requiredWhen: { key: "is_advance_amount_applicable", equals: "Yes" } },
-  { key: "recovery_period_months", label: "Recovery Period (Months)", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "rent_free_period_days", label: "Rent Free Period (Days)", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "reimbursement_by_landlord", label: "Reimbursement By Landlord", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "stamp_duty_legal_cost_sharing_ratio", label: "Stamp Duty & Legal Cost Sharing Ratio", kind: "text", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "monthly_fixed_charges_paid", label: "Any Other Monthly Fixed Charges to be Paid", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "rent_escalation_percentage", label: "Rent Escalation Percentage", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "rent_escalation_months", label: "Rent Escalation Months", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "rent_escalation", label: "Rent Escalation", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "rent_escalation_basis", label: "Rent Escalation Basis", kind: "select", options: ["On the last paid rent", "On the base rent"], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "lease_period", label: "Lease Period", kind: "number", options: [], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "lease_exit_notice_period_from_lessee", label: "Lease Exit Notice Period From Lessee", kind: "select", options: ["30 Days", "60 Days", "90 Days"], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "property_tax_liability", label: "Property Tax Liability", kind: "select", options: ["Lessor", "Lessee"], wide: false, showWhen: undefined, requiredWhen: undefined },
-  { key: "water_sewage_tax_liability", label: "Water/Sewage Tax Liability", kind: "select", options: ["Owner", "Chola", "NA"], wide: false, showWhen: undefined, requiredWhen: undefined },
+  { key: "monthly_rent", label: "Monthly Rent ", kind: "number", options: [], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "security_deposit_amount", label: "Security Deposit Amount", kind: "number", options: [], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "maintenance", label: "Maintenance", kind: "number", options: [], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "rent_per_sq_feet", label: "Rent Per Sq Feet", kind: "number", options: [], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "is_advance_amount_applicable", label: "Is Advance Amount Applicable", kind: "select", options: ["Yes", "No"], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "advance_rent_amount", label: "Advance Rent Amount", kind: "number", options: [], wide: false, showWhen: [RENTAL, { key: "is_advance_amount_applicable", equals: "Yes" }], requiredWhen: [RENTAL, { key: "is_advance_amount_applicable", equals: "Yes" }] },
+  { key: "recovery_period_months", label: "Recovery Period (Months)", kind: "number", options: [], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "monthly_fixed_charges_paid", label: "Any Other Monthly Fixed Charges to be Paid", kind: "number", options: [], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "reimbursement_by_landlord", label: "Reimbursement By Landlord", kind: "text", options: [], wide: false, showWhen: RENTAL, requiredWhen: undefined },
+  { key: "lease_period", label: "Lease Period", kind: "number", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "lock_in_period", label: "Lock In Period", kind: "number", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "lease_exit_notice_period_from_lessee", label: "Lease Exit Notice Period From Lessee", kind: "select", options: ["30 Days", "60 Days", "90 Days"], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "rent_free_period_days", label: "Rent Free Period (Days)", kind: "number", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "rent_escalation_percentage", label: "Rent Escalation Percentage", kind: "number", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "rent_escalation_months", label: "Rent Escalation Months", kind: "number", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "rent_escalation", label: "Rent Escalation", kind: "number", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "rent_escalation_basis", label: "Rent Escalation Basis", kind: "select", options: ["On the last paid rent", "On the base rent"], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "stamp_duty_and_legal_expense_sharing_ratio_for_registration", label: "Stamp Duty & Legal Expense Sharing Ratio For Registration", kind: "text", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "stamp_duty_legal_cost_sharing_ratio", label: "Stamp Duty & Legal Cost Sharing Ratio", kind: "text", options: [], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "property_tax_liability", label: "Property Tax Liability", kind: "select", options: ["Lessor", "Lessee"], wide: false, showWhen: LEASE, requiredWhen: undefined },
+  { key: "water_sewage_tax_liability", label: "Water/Sewage Tax Liability", kind: "select", options: ["Owner", "Chola", "NA"], wide: false, showWhen: LEASE, requiredWhen: undefined },
   { key: "brokerage_applicable", label: "Brokerage Applicable", kind: "select", options: ["No", "Yes"], wide: false, showWhen: undefined, requiredWhen: undefined },
   { key: "brokerage", label: "Brokerage Name", kind: "text", options: [], wide: false, showWhen: { key: "brokerage_applicable", equals: "Yes" }, requiredWhen: { key: "brokerage_applicable", equals: "Yes" } },
   { key: "broker_mobile_number", label: "Broker Mobile Number", kind: "text", options: [], wide: false, showWhen: { key: "brokerage_applicable", equals: "Yes" }, requiredWhen: { key: "brokerage_applicable", equals: "Yes" } },

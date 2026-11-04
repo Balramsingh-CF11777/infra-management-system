@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type { NavItem, UserContext } from "@/types/api";
+import { APPROVER_MODULES, isApproverRole } from "@/config/leadRoles";
 import { homePathForUser, usesArbmLeadHome } from "@/lib/arbmAccess";
 import { usesRibLeadHome } from "@/lib/ribAccess";
 
@@ -31,6 +32,7 @@ export const MODULES_BY_ROLE_LABEL: Record<string, string[]> = {
   "HO Infra Legal Team": ["dashboard", "requests", "pending", "operations"],
   "Zonal Infra Business Partner": ["dashboard", "requests", "pending", "leads"],
   RLM: ["dashboard", "requests", "pending"],
+  "RB Manager": ["dashboard", "requests", "pending", "leads"],
   "Regional Infra Business Partner": ["dashboard", "requests", "pending", "leads", "operations"],
   "Area Regional Business Manager": ["dashboard", "pending", "leads"],
   "Business Team": ["dashboard", "requests", "pending", "new_branch"],
@@ -65,14 +67,18 @@ export function modulesForRole(
   const all = user?.available_modules ?? [];
   const role = (activeRoleLabel || user?.default_role_label || "").trim();
   if (!role) return all;
-  const scoped = MODULES_BY_ROLE_LABEL[role];
+  const scoped = MODULES_BY_ROLE_LABEL[role] ?? (isApproverRole(role, user) ? APPROVER_MODULES : undefined);
   if (!scoped?.length) return all;
   const allow = new Set(scoped);
   // Keep documents if the session already unlocked it (permission-based).
   if (all.includes("documents")) allow.add("documents");
-  // Prefer role scope; if session modules are empty/unknown, still show role defaults.
+  // Keep every module this role owns, even when the session list was built before the role was mapped.
   const filtered = all.filter((module) => allow.has(module));
-  return filtered.length ? filtered : [...scoped];
+  const merged = [...filtered];
+  for (const module of scoped) {
+    if (!merged.includes(module)) merged.push(module);
+  }
+  return merged;
 }
 
 /**
@@ -112,7 +118,7 @@ export function bottomNavigationForUser(input: {
     return items.slice(0, 4);
   }
 
-  // Regional Infra Business Partner — review leads by region.
+  // Regional Infra Business Partner — create stays on the floating plus.
   if (isRibp) {
     const items: BottomNavItem[] = [
       { to: "/chola360/leads", label: "Leads", iconKey: "leads", end: true },

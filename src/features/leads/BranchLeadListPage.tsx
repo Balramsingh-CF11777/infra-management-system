@@ -1,9 +1,10 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, MapPin, Search } from "lucide-react";
+import { MapPin, Search } from "lucide-react";
 import { listLeads } from "@/api/leads";
 import { queryKeys } from "@/api/keys";
+import { BackButton } from "@/components/common/BackButton";
 import { EmptyState, SkeletonBlock } from "@/components/common/EmptyState";
 import {
   applyLeadListFilters,
@@ -55,24 +56,65 @@ export function BranchLeadListPage() {
   const region = (params.get("region") || "").trim();
   const geoState = (params.get("geo_state") || "").trim();
   const stateFilter = (params.get("state") || "").trim(); // workflow status filter (Re-Work / Rejected / …)
+  const pipeline = (params.get("pipeline") || "").trim();
   const listAll = params.get("list") === "1";
+  const rimBucket = (params.get("rim") || "").trim();
+  const stateParts = stateFilter
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const pendingStates = stateParts.length > 1 && stateParts.every((s) => ["Draft", "Awaiting Approval", "On Hold"].includes(s));
+  const slaStates =
+    stateParts.length > 1 &&
+    stateParts.every((s) => ["Awaiting Approval", "On Hold"].includes(s)) &&
+    !stateParts.includes("Draft");
 
   const placeTitle = location || area || region || geoState;
-  const title = placeTitle
-    || (stateFilter ? `${stateFilter} Leads` : listAll ? "All Property Leads" : "Property Leads");
-  const subtitle = stateFilter && !placeTitle
-    ? `Filtered by status · ${stateFilter}`
-    : stateFilter
-      ? `${placeTitle} · ${stateFilter}`
-      : listAll || !placeTitle
-        ? "All property leads you can access"
-        : "Property leads in this area";
-  const backHref = geoState && (area || region || location)
+  const statusTitle = pipeline
+    ? pipeline === "site_verification"
+      ? "Site Verification Leads"
+      : pipeline === "lead_creation"
+        ? "Lead Creation"
+        : "Pipeline Leads"
+    : slaStates
+      ? "SLA Overdue"
+      : pendingStates
+        ? "Pending Leads"
+        : stateParts.length === 1
+          ? `${stateParts[0]} Leads`
+          : stateParts.length > 1
+            ? "Filtered Leads"
+            : "";
+  const rimTitle =
+    rimBucket === "pending"
+      ? "Review Pending"
+      : rimBucket === "rework"
+        ? "Rework Raised"
+        : rimBucket === "approved"
+          ? "Approved Properties"
+          : rimBucket
+            ? "Total Properties"
+            : "";
+  const title = rimTitle || placeTitle || statusTitle || (listAll ? "All Property Leads" : "Property Leads");
+  const subtitle = rimBucket
+    ? "Property leads assigned to you as RB Manager"
+    : pipeline
+    ? "Same rows as the Pipeline Overview card count"
+    : stateFilter && !placeTitle
+      ? `Filtered by status · ${stateParts.join(" · ")}`
+      : stateFilter
+        ? `${placeTitle} · ${stateParts.join(" · ")}`
+        : listAll || !placeTitle
+          ? "All property leads you can access"
+          : "Property leads in this area";
+  const backHref = rimBucket
+    ? "/dashboard"
+    : geoState && (area || region || location)
     ? `/chola360/leads?geo_state=${encodeURIComponent(geoState)}`
     : "/chola360/leads";
 
   const leadsQuery = useQuery({
-    queryKey: queryKeys.leadList({ location, area, region, geoState, state: stateFilter, demo }),
+    queryKey: queryKeys.leadList({ location, area, region, geoState, state: stateFilter, pipeline, rim: rimBucket, demo }),
     queryFn: () =>
       listLeads({
         demo,
@@ -81,6 +123,8 @@ export function BranchLeadListPage() {
         region: region || undefined,
         geo_state: geoState || undefined,
         workflow_state: stateFilter || undefined,
+        pipeline: pipeline || undefined,
+        rim: rimBucket || undefined,
       }),
   });
 
@@ -118,13 +162,10 @@ export function BranchLeadListPage() {
   return (
     <section className="space-y-4">
       <div className="flex items-center gap-3">
-        <Link
-          to={demo ? `${backHref}${backHref.includes("?") ? "&" : "?"}demo=1` : backHref}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-ims-ink ring-1 ring-ims-line no-underline"
-          aria-label="Back"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
+        <BackButton
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-ims-ink ring-1 ring-ims-line"
+          fallback={demo ? `${backHref}${backHref.includes("?") ? "&" : "?"}demo=1` : backHref}
+        />
         <div className="min-w-0">
           <h1 className="truncate text-[17px] font-semibold text-ims-ink md:text-[20px]">
             {placeTitle ? `${title} Branch` : title}
@@ -225,7 +266,7 @@ function LeadStatusCard({ lead }: { lead: LeadSummary }) {
 
   return (
     <Link
-      to={`/chola360/leads/${encodeURIComponent(lead.name)}`}
+      to={`/chola360/leads/${encodeURIComponent(lead.name)}/approval`}
       className="relative block overflow-hidden rounded-xl border border-[#D6E3F0] bg-white p-4 no-underline shadow-[0_4px_14px_rgba(31,37,71,0.04)]"
     >
       <span

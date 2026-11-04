@@ -18,6 +18,11 @@ type FieldSelectProps = {
   id?: string;
   emptyMessage?: string;
   className?: string;
+  /** Borderless control for use inside a labelled field box. */
+  bare?: boolean;
+  /** Label sits inside the box, with the value underneath. Same on phone and desktop. */
+  floated?: boolean;
+  label?: string;
 };
 
 /** Matches AppLayout desktop breakpoint — native select works here. */
@@ -43,6 +48,20 @@ function optionText(opt: FieldSelectOption) {
   return opt.hint ? `${opt.label} — ${opt.hint}` : opt.label;
 }
 
+function FieldChevron() {
+  return (
+    <svg className="pointer-events-none absolute right-4 top-[18px] h-6 w-6 text-[#333]" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="m5 9 7 7 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const FLOAT_SHELL =
+  "relative box-border h-[60px] w-full max-w-full rounded-lg border border-[#dde5f2] bg-white shadow-[0_4px_12px_rgb(105_105_105/10.2%)] focus-within:border-[#5940b6] focus-within:shadow-[0_0_0_3px_rgb(89_64_182/15%)]";
+const FLOAT_LABEL = "pointer-events-none absolute left-[15px] top-2 z-[1] truncate text-[14px] font-medium leading-5 text-[#666]";
+const FLOAT_CONTROL =
+  "box-border h-full w-full appearance-none border-0 bg-transparent pb-[7px] pl-[15px] pr-12 pt-[30px] text-left font-sans text-[14px] leading-5 outline-none";
+
 /**
  * Desktop (lg+): native &lt;select&gt; (earlier PC behaviour).
  * Mobile: sheet picker portaled above Leaflet (maps use z-index ~400–1000).
@@ -57,6 +76,9 @@ export function FieldSelect({
   id,
   emptyMessage = "No options available.",
   className = "",
+  bare = false,
+  floated = false,
+  label = "",
 }: FieldSelectProps) {
   const autoId = useId();
   const fieldId = id || autoId;
@@ -91,11 +113,17 @@ export function FieldSelect({
     triggerRef.current?.focus();
   }
 
+  const floatValueClass = value ? "font-semibold text-[#333]" : "font-normal text-[rgb(51_51_51/25%)]";
+
   if (isDesktop) {
-    return (
+    const select = (
       <select
         id={fieldId}
-        className={`ims-field ${className}`.trim()}
+        className={
+          floated || bare
+            ? `${FLOAT_CONTROL} cursor-pointer ${floatValueClass} [&_option]:bg-white [&_option]:text-[#333]`
+            : `ims-field ${className}`.trim()
+        }
         value={value}
         required={required}
         disabled={disabled}
@@ -108,6 +136,22 @@ export function FieldSelect({
           </option>
         ))}
       </select>
+    );
+    if (bare) {
+      return (
+        <div className="absolute inset-0">
+          {select}
+          <FieldChevron />
+        </div>
+      );
+    }
+    if (!floated) return select;
+    return (
+      <div className={`${FLOAT_SHELL} ${disabled ? "opacity-60" : ""} ${className}`}>
+        <span className={FLOAT_LABEL}>{label}</span>
+        {select}
+        <FieldChevron />
+      </div>
     );
   }
 
@@ -129,7 +173,7 @@ export function FieldSelect({
             >
               <div className="flex items-center justify-between gap-3 border-b border-ims-line px-4 py-3">
                 <h2 id={`${fieldId}-picker-title`} className="text-sm font-semibold text-ims-ink">
-                  {placeholder}
+                  {label || placeholder}
                 </h2>
                 <button
                   type="button"
@@ -174,6 +218,53 @@ export function FieldSelect({
           document.body,
         )
       : null;
+
+  if (floated) {
+    return (
+      <div className={`${FLOAT_SHELL} ${disabled ? "opacity-60" : ""} ${className}`}>
+        <span className={FLOAT_LABEL}>{label}</span>
+        <input type="hidden" value={value} required={required} readOnly tabIndex={-1} aria-hidden />
+        <button
+          ref={triggerRef}
+          id={fieldId}
+          type="button"
+          disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={listId}
+          className={`${FLOAT_CONTROL} cursor-pointer ${floatValueClass}`}
+          onClick={() => setOpen(true)}
+        >
+          <span className="block truncate">{selected?.label || placeholder}</span>
+        </button>
+        <FieldChevron />
+        {sheet}
+      </div>
+    );
+  }
+
+  if (bare) {
+    return (
+      <div className="absolute inset-0">
+        <input type="hidden" value={value} required={required} readOnly tabIndex={-1} aria-hidden />
+        <button
+          ref={triggerRef}
+          id={fieldId}
+          type="button"
+          disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={listId}
+          className={`${FLOAT_CONTROL} cursor-pointer ${floatValueClass}`}
+          onClick={() => setOpen(true)}
+        >
+          <span className="block truncate">{selected?.label || placeholder}</span>
+        </button>
+        <FieldChevron />
+        {sheet}
+      </div>
+    );
+  }
 
   return (
     <div className={`relative ${className}`}>

@@ -2,7 +2,7 @@ import { Check, X } from "lucide-react";
 import { SHORTLISTING_CHECKS } from "@/features/leads/siteVerification";
 
 export function ShortlistingChecklist({
-  title = "Property shortlisting",
+  title = "Onsite Vetting",
   items = SHORTLISTING_CHECKS,
   value,
   onToggle,

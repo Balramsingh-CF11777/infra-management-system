@@ -9,6 +9,8 @@ export interface RequestFilters {
   product_line?: string;
   zone?: string;
   region?: string;
+  /** RIBP Pipeline Overview bucket — same states as card count. */
+  pipeline?: string;
   start?: number;
   page_length?: number;
 }

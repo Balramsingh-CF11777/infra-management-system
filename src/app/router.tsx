@@ -25,6 +25,10 @@ import { NewBranchPage } from "@/features/newBranch/NewBranchPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { LeadHomePage } from "@/features/leads/LeadHomePage";
 import { CreateLeadPage } from "@/features/leads/CreateLeadPage";
+import { ProspectCheckpointsPage } from "@/features/leads/ProspectCheckpointsPage";
+import { ProspectSubmittedPage } from "@/features/leads/ProspectSubmittedPage";
+import { ProspectCategoriesPage } from "@/features/leads/ProspectCategoriesPage";
+import { ProspectPropertyVerificationPage } from "@/features/leads/ProspectPropertyVerificationPage";
 import { LeadDetailPage } from "@/features/leads/LeadDetailPage";
 import { SiteImageCapturePage } from "@/features/leads/SiteImageCapturePage";
 import { SiteVerificationPage } from "@/features/leads/SiteVerificationPage";
@@ -105,6 +109,16 @@ export function AppRouter() {
           <Route path="/pending" element={<PendingPage />} />
           <Route path="/chola360/leads" element={<LeadHomePage />} />
           <Route path="/chola360/leads/new" element={<CreateLeadPage />} />
+          <Route path="/chola360/prospects/:id/checkpoints" element={<ProspectCheckpointsPage />} />
+          <Route path="/chola360/prospects/:id/site-images" element={<SiteImageCapturePage />} />
+          <Route path="/chola360/prospects/:id/property-verification" element={<ProspectPropertyVerificationPage />} />
+          <Route path="/chola360/prospects/:id/property-details" element={<LeadPropertyDetailsPage />} />
+          <Route path="/chola360/prospects/:id/owner-details" element={<LeadOwnerDetailsPage />} />
+          <Route path="/chola360/prospects/:id/facility-details" element={<LeadFacilityDetailsPage />} />
+          <Route path="/chola360/prospects/:id/documents" element={<LeadDocumentUploadPage />} />
+          <Route path="/chola360/prospects/:id/loi" element={<LeadLoiPage />} />
+          <Route path="/chola360/prospects/:id" element={<ProspectSubmittedPage />} />
+          <Route path="/chola360/prospects/:id/evaluation" element={<ProspectCategoriesPage />} />
           <Route path="/chola360/leads/:id/site-images" element={<SiteImageCapturePage />} />
           <Route path="/chola360/leads/:id/property-verification" element={<PropertyVerificationPage />} />
           <Route path="/chola360/leads/:id/property-details" element={<LeadPropertyDetailsPage />} />

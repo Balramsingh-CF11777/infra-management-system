@@ -13,23 +13,36 @@ import type { RequestSummary } from "@/types/api";
 
 const PAGE_LENGTH = 20;
 
+const PIPELINE_TITLES: Record<string, string> = {
+  design_sketch: "Design Sketch",
+  cad_consent: "CAD Consent",
+  ll_agreement: "LL Agreement",
+  infra_readiness: "Infra Readiness",
+};
+
 export function RequestListPage() {
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState(params.get("q") ?? "");
+  const pipeline = (params.get("pipeline") || "").trim();
   const filters = useMemo(
     () => ({
       search: params.get("q") || undefined,
       workflow_state: params.get("state") || undefined,
       product_line: params.get("product") || undefined,
       zone: params.get("zone") || undefined,
+      pipeline: pipeline || undefined,
       start: Number(params.get("start") || 0),
       page_length: PAGE_LENGTH,
     }),
-    [params],
+    [params, pipeline],
   );
   const requests = useQuery({ queryKey: queryKeys.requests(filters), queryFn: () => getRequests(filters) });
   const total = requests.data?.total ?? 0;
   const shown = requests.data?.items.length ?? 0;
+  const listTitle = PIPELINE_TITLES[pipeline] || "Total Listing";
+  const listSubtitle = pipeline
+    ? "Same Proposed Branch rows as the Pipeline Overview card count."
+    : "All property listings you are permitted to see.";
 
   function applySearch(event: FormEvent) {
     event.preventDefault();
@@ -48,9 +61,9 @@ export function RequestListPage() {
 
   return (
     <section>
-      <Breadcrumb current="Total Listing" />
+      <Breadcrumb current={listTitle} />
       <div className="ims-card overflow-hidden">
-        <CardHeader title="Total Listing" subtitle="All property listings you are permitted to see.">
+        <CardHeader title={listTitle} subtitle={listSubtitle}>
           <form className="flex w-full gap-2 sm:w-auto" onSubmit={applySearch}>
             <label className="sr-only" htmlFor="request-search">
               Search requests

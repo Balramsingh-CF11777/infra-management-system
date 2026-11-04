@@ -15,6 +15,10 @@ type LeadCreatedSuccessSheetProps = {
   onDone: () => void;
   /** Same sheet as lead creation. Approval only changes the heading and sentence. */
   variant?: "created" | "approved";
+  /** Optional copy for one screen. Other callers keep the default heading and sentence. */
+  titleText?: string;
+  message?: string;
+  actionLabel?: string;
 };
 
 /**
@@ -28,6 +32,9 @@ export function LeadCreatedSuccessSheet({
   propertyId,
   onDone,
   variant = "created",
+  titleText,
+  message,
+  actionLabel,
 }: LeadCreatedSuccessSheetProps) {
   useEffect(() => {
     if (!open) return;
@@ -42,12 +49,12 @@ export function LeadCreatedSuccessSheet({
 
   const subject = [locationLabel, propertyId].filter(Boolean).join(" - ") || propertyId || "this requirement";
   const approved = variant === "approved";
-  const title = approved ? "Lead Approved Successfully" : "Lead Created Successfully";
+  const title = titleText || (approved ? "Lead Approved Successfully" : "Lead Created Successfully");
   const titleId = approved ? "lead-approved-title" : "lead-created-title";
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[2300] flex items-end justify-center bg-[#1f2547]/55 sm:items-center sm:px-6 sm:py-10"
+      className="fixed inset-0 z-[2300] flex items-end justify-center bg-[#1f2547]/55 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:items-center sm:px-6 sm:py-10 sm:pb-10"
       role="presentation"
       onClick={(event) => {
         if (event.target === event.currentTarget) onDone();
@@ -73,13 +80,17 @@ export function LeadCreatedSuccessSheet({
           <h2 id={titleId} className="text-[20px] font-bold leading-snug tracking-tight text-ims-ink">
             {title}
           </h2>
-          <p className="mx-auto mt-3 max-w-[22rem] text-sm leading-relaxed text-slate-500">
-            The Property Lead is {approved ? "approved" : "created"} against{" "}
-            <span className="font-semibold text-ims-ink">{subject}</span>
+          <p className="mx-auto mt-3 max-w-[22rem] px-1 text-sm leading-relaxed text-slate-500 sm:px-0">
+            {message || (
+              <>
+                The Property Lead is {approved ? "approved" : "created"} against{" "}
+                <span className="font-semibold text-ims-ink">{subject}</span>
+              </>
+            )}
           </p>
 
           <button type="button" className="ims-btn-primary mt-8 min-h-12 w-full text-base font-semibold" onClick={onDone}>
-            Done
+            {actionLabel || "Done"}
           </button>
         </div>
       </div>

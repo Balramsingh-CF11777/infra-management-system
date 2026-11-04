@@ -33,28 +33,47 @@ export const RIM_EXTRA_CHECKS = [
   { key: "rim_broadband", title: "Broadband", detail: "BSNL, ACT, Airtel, or fiber service is available." },
   { key: "rim_carpet", title: "Usable carpet area", detail: "Measured usable carpet area matches the space specification." },
   { key: "rim_video", title: "Layout sketch and video", detail: "Walk-through video marks width, length, entrance, pillars, and windows." },
-  { key: "rim_recheck", title: "Shortlisting re-check", detail: "All 17 ARBM shortlisting points are confirmed." },
 ] as const;
 
 export function isRimExtraKey(key: string) {
   return RIM_EXTRA_CHECKS.some((item) => item.key === key);
 }
 
+/** Prefer the Lead Request Check fields. Fall back to the stored checklist JSON. */
+export function shortlistingFromLead(lead: Record<string, unknown> | null | undefined): Record<string, boolean> {
+  const next = shortlistingFrom(lead?.shortlisting_checklist);
+  if (!lead) return next;
+  for (const item of [...SHORTLISTING_CHECKS, ...RIM_EXTRA_CHECKS]) {
+    const raw = lead[item.key];
+    if (raw === true || raw === 1 || raw === "1" || raw === "true" || raw === "Yes") next[item.key] = true;
+  }
+  return next;
+}
+
 export function shortlistingFrom(value: unknown): Record<string, boolean> {
   const next: Record<string, boolean> = emptyShortlisting();
   for (const item of RIM_EXTRA_CHECKS) next[item.key] = false;
   let parsed: unknown = value;
-  if (typeof value === "string" && value.trim()) {
+  // Unwrap double-encoded JSON strings from older saves.
+  for (let i = 0; i < 3; i += 1) {
+    if (typeof parsed !== "string" || !parsed.trim()) break;
     try {
-      parsed = JSON.parse(value);
+      parsed = JSON.parse(parsed);
     } catch {
       parsed = null;
+      break;
     }
   }
-  if (!parsed || typeof parsed !== "object") return next;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return next;
   const record = parsed as Record<string, unknown>;
-  for (const item of SHORTLISTING_CHECKS) next[item.key] = Boolean(record[item.key]);
-  for (const item of RIM_EXTRA_CHECKS) next[item.key] = Boolean(record[item.key]);
+  for (const item of SHORTLISTING_CHECKS) {
+    const raw = record[item.key];
+    next[item.key] = raw === true || raw === 1 || raw === "1" || raw === "true" || raw === "Yes";
+  }
+  for (const item of RIM_EXTRA_CHECKS) {
+    const raw = record[item.key];
+    next[item.key] = raw === true || raw === 1 || raw === "1" || raw === "true" || raw === "Yes";
+  }
   return next;
 }
 

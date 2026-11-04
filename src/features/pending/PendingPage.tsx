@@ -11,11 +11,15 @@ import { useSession } from "@/stores/session";
 import { ApiError, type PendingItem, type UserContext } from "@/types/api";
 import type { LeadSummary } from "@/features/leads/types";
 
+import { isApproverRole } from "@/config/leadRoles";
+
 function matchesWorkingRole(item: PendingItem, activeRole: string) {
   if (!activeRole || activeRole === "System Manager") return true;
+  if (item.doctype === "Lead Request") return true;
   const label = (item.role_label || item.role || "").trim();
   if (!label) return true;
-  return label === activeRole;
+  if (label === activeRole) return true;
+  return isApproverRole(label) && isApproverRole(activeRole);
 }
 
 const MY_LEAD_STATES = new Set(["draft", "awaiting approval", "pending for approval", "pending approval"]);
@@ -107,15 +111,21 @@ export function PendingPage() {
         <CardHeader
           title="My Tasks"
           subtitle={
-            readOnly
-              ? "Read-only list from the existing Infra Management role queues. Opening a request here needs the portal API on the Frappe site."
-              : "Draft and awaiting-approval leads you created."
+            activeRole === "RB Manager"
+              ? "Sections the Regional Infra Business Partner submitted for your approval."
+              : readOnly
+                ? "Read-only list from the existing Infra Management role queues. Opening a request here needs the portal API on the Frappe site."
+                : "Draft and awaiting-approval leads you created."
           }
         />
         <DataTable<PendingItem>
           rows={rows}
           emptyTitle="No leads waiting"
-          emptyBody="Draft and awaiting-approval leads you created will appear here."
+          emptyBody={
+            activeRole === "RB Manager"
+              ? "Sections submitted by the Regional Infra Business Partner will appear here."
+              : "Draft and awaiting-approval leads you created will appear here."
+          }
           href={(row) => (readOnly ? "/pending" : documentPath(row.doctype, row.name))}
           columns={[
             {

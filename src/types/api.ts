@@ -39,6 +39,12 @@ export interface UserContext {
   }>;
   /** "portal" when infra_ms.portal is installed; "compat" uses existing infra_ms.api read-only. */
   api_mode?: "portal" | "compat";
+  /** Role names from infra_ms/portal/lead_roles.py. Sent at login. */
+  lead_roles?: {
+    approver: string[];
+    submitter: string[];
+    editor: string[];
+  };
 }
 
 export interface NavItem {
@@ -88,6 +94,8 @@ export interface DashboardSummary {
   alerts: string[];
   stage_counts?: Array<{ workflow_state: string; label: string; total: number }>;
   home?: GoldLoanHome;
+  /** RB Manager: Lead Requests assigned on New Branch Details.rb_manager_details. */
+  rim_home?: { total: number; review_pending: number; rework_raised: number; approved: number } | null;
   /** Proposed Branch geography for Properties by Region (preferred over queue items). */
   home_rows?: DashboardHomeRow[];
   /** Business Team: Regional Details × product lines they can raise tickets for. */

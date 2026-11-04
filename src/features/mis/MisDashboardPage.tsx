@@ -178,7 +178,7 @@ export function MisDashboardPage() {
 
       <section
         aria-label="Branch request summary"
-        className="lg:rounded-[14px] lg:border lg:border-ims-line lg:bg-white lg:p-5 lg:shadow-[0_6px_20px_rgba(31,37,71,0.06)]"
+        className="ims-dash-panel p-4 sm:p-5"
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">
@@ -249,7 +249,7 @@ export function MisDashboardPage() {
             const query = sectionSearch[section.state] || "";
             const rows = rowsFor(section);
             return (
-              <section key={section.state} className="ims-card overflow-hidden">
+              <section key={section.state} className="ims-dash-panel overflow-hidden">
                 <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                   <div className="min-w-0">
                     <h2 className="text-[17px] font-semibold text-ims-ink">{section.label}</h2>
@@ -282,7 +282,7 @@ export function MisDashboardPage() {
           })}
 
           {completeSection && completeSection.count > 0 && (
-            <section className="ims-card overflow-hidden">
+            <section className="ims-dash-panel overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div className="min-w-0">
                   <h2 className="text-[17px] font-semibold text-ims-ink">{completeSection.label}</h2>

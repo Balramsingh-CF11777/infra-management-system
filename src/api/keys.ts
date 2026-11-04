@@ -21,6 +21,9 @@ export const queryKeys = {
   misCreateForm: ["misCreateForm"] as const,
   misRequest: (name: string) => ["misRequest", name] as const,
   leadHome: ["leadHome"] as const,
+  ribPipeline: ["ribPipeline"] as const,
   leadDetail: (name: string) => ["leadDetail", name] as const,
   leadList: (filters: unknown) => ["leadList", filters] as const,
+  leadProspect: (name: string) => ["leadProspect", name] as const,
+  leadProspectList: (filters: unknown) => ["leadProspectList", filters] as const,
 };

@@ -17,6 +17,7 @@ import { BranchArt } from "@/features/dashboard/regionArt";
 import { RegionCardsSection } from "@/features/dashboard/RegionCardsSection";
 import { MisDashboardPage } from "@/features/mis/MisDashboardPage";
 import { usesMisDashboard } from "@/lib/misAccess";
+import { isApproverRole } from "@/config/leadRoles";
 import { usesArbmLeadHome } from "@/lib/arbmAccess";
 import { usesRibLeadHome } from "@/lib/ribAccess";
 
@@ -71,8 +72,19 @@ function DefaultDashboard() {
     isBusinessTeam,
     regionAccess,
   });
-  const queues = data.queues.filter((queue) => !activeRole || queue.role_label === activeRole || activeRole === "System Manager");
-  const totalProperties = home.regions.reduce((sum, region) => sum + region.properties, 0);
+  const rimQueue = data.queues.find((queue) => isApproverRole(queue.role_label, user) && queue.items.some((item) => item.doctype === "Lead Request"));
+  const isRbManager = isApproverRole(activeRole, user) || Boolean(rimQueue);
+  const queues = data.queues.filter(
+    (queue) =>
+      !activeRole ||
+      queue.role_label === activeRole ||
+      activeRole === "System Manager" ||
+      queue === rimQueue,
+  );
+  const rimHome = isRbManager ? data.rim_home : null;
+  const totalProperties = isRbManager
+    ? (rimHome?.total ?? 0)
+    : home.regions.reduce((sum, region) => sum + region.properties, 0);
   const firstName = (user?.full_name || data.full_name || "").split(" ")[0];
   const readOnly = user?.api_mode === "compat";
 
@@ -85,21 +97,46 @@ function DefaultDashboard() {
         <p className="text-[17px] text-ims-ink">Let’s get your infra tasks moving.</p>
       </div>
 
-      <section className="order-2 lg:order-none lg:rounded-[14px] lg:border lg:border-ims-line lg:bg-white lg:p-5 lg:shadow-[0_6px_20px_rgba(31,37,71,0.06)]">
+      <section className="ims-dash-panel order-2 p-4 sm:p-5 lg:order-none">
         <h2 className="mb-3 text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">
           <span className="lg:hidden">Status Overview</span>
           <span className="hidden lg:inline">Overview</span>
         </h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-          <StatCard to="/infra/requests" label="Total Properties" value={totalProperties} tone="sky" art="properties" />
-          <StatCard to="/infra/requests" label="Review Pending" value={home.status.review_pending} tone="gold" art="review" />
-          <StatCard to="/pending" label="Rework Raised" value={home.status.rework_raised} tone="lilac" art="rework" />
-          <StatCard to="/infra/requests" label="Approved Properties" value={home.status.approved} tone="mint" art="completed" />
+          <StatCard
+            to={isRbManager ? "/chola360/leads?list=1&rim=all" : "/infra/requests"}
+            label="Total Properties"
+            value={totalProperties}
+            tone="sky"
+            art="properties"
+          />
+          <StatCard
+            to={isRbManager ? "/chola360/leads?list=1&rim=pending" : "/infra/requests"}
+            label="Review Pending"
+            value={rimHome ? rimHome.review_pending : home.status.review_pending}
+            tone="gold"
+            art="review"
+          />
+          <StatCard
+            to={isRbManager ? "/chola360/leads?list=1&rim=rework" : "/pending"}
+            label="Rework Raised"
+            value={rimHome ? rimHome.rework_raised : home.status.rework_raised}
+            tone="lilac"
+            art="rework"
+          />
+          <StatCard
+            to={isRbManager ? "/chola360/leads?list=1&rim=approved" : "/infra/requests"}
+            label="Approved Properties"
+            value={rimHome ? rimHome.approved : home.status.approved}
+            tone="mint"
+            art="completed"
+          />
         </div>
       </section>
 
-      <RegionCardsSection regionCards={regionCards} isBusinessTeam={isBusinessTeam} />
+      {isRbManager ? null : <RegionCardsSection regionCards={regionCards} isBusinessTeam={isBusinessTeam} />}
 
+      {isRbManager ? null : (
       <section className="order-3 lg:order-none">
         <h2 className="mb-3 text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">Branch Readiness</h2>
         <Link
@@ -111,9 +148,25 @@ function DefaultDashboard() {
           <p className="text-[28px] font-semibold leading-none text-ims-ink">{home.launches}</p>
         </Link>
       </section>
+      )}
+
+      {isRbManager && queues.length === 0 ? (
+        <section className="ims-dash-panel order-4 overflow-hidden lg:order-none">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+            <div>
+              <h2 className="text-[17px] font-semibold text-ims-ink">RB Manager</h2>
+              <p className="text-sm text-slate-500">Sections the Regional Infra Business Partner submitted for your approval.</p>
+            </div>
+            <Link to="/pending" className="ims-btn-secondary min-h-10 px-4">
+              View All
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       {queues.map((queue) => (
-        <section key={queue.role_label} className="ims-card order-4 overflow-hidden lg:order-none">
+        <section key={queue.role_label} className="ims-dash-panel order-4 overflow-hidden lg:order-none">
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
             <div>
               <h2 className="text-[17px] font-semibold text-ims-ink">{queue.role_label}</h2>

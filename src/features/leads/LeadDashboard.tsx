@@ -1,50 +1,138 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { StatCard } from "@/components/common/StatCard";
+import { SkeletonBlock } from "@/components/common/EmptyState";
 import { DataTable, StateCell } from "@/components/tables/DataTable";
 import { currentLeadTask } from "@/features/leads/leadTask";
-import type { LeadBranchGroup, LeadGeoStateGroup, LeadHomeData, LeadSummary } from "@/features/leads/types";
+import { RibPipelineStageCard } from "@/features/leads/RibPipelineStageCard";
+import type {
+  LeadBranchGroup,
+  LeadHomeData,
+  LeadSummary,
+  RibPipelineOverview,
+} from "@/features/leads/types";
 
-export function LeadDashboard({ data, ribpMode = false }: { data: LeadHomeData; ribpMode?: boolean }) {
-  const geoStates = data.by_geo_state?.length
-    ? data.by_geo_state
-    : deriveGeoStates(data.by_branch);
+export function LeadDashboard({
+  data,
+  ribpMode = false,
+  pipeline,
+  pipelineLoading = false,
+  pipelineError = false,
+}: {
+  data: LeadHomeData;
+  ribpMode?: boolean;
+  pipeline?: RibPipelineOverview | null;
+  pipelineLoading?: boolean;
+  pipelineError?: boolean;
+}) {
+  const [params] = useSearchParams();
+  const activeStage = (params.get("stage") || "").trim();
+  const pendingLeads = (data.awaiting || 0) + (data.draft || 0);
+  const slaOverdue = data.awaiting || 0;
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="lg:rounded-[14px] lg:border lg:border-ims-line lg:bg-white lg:p-5 lg:shadow-[0_6px_20px_rgba(31,37,71,0.06)]">
-        <h2 className="mb-3 text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">
-          <span className="lg:hidden">Status Overview</span>
-          <span className="hidden lg:inline">Overview</span>
-        </h2>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-          <StatCard to="/chola360/leads?list=1" label="Total Property Leads" value={data.total} tone="sky" art="properties" />
-          <StatCard to="/chola360/leads?state=Re-Work" label="Re-work Leads" value={data.rework} tone="lilac" art="rework" />
-          <StatCard to="/chola360/leads?state=Rejected" label="Rejected Leads" value={data.rejected} tone="rose" art="rejected" />
-          <StatCard to="/chola360/leads?state=Approved" label="Approved Leads" value={data.approved} tone="mint" art="completed" />
-        </div>
-      </section>
+      {ribpMode ? (
+        <section className="ims-dash-panel p-4 sm:p-5">
+          <h2 className="mb-3 text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">
+            Pipeline Overview
+          </h2>
+          {pipeline?.buckets?.length ? (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 lg:gap-4">
+              {pipeline.buckets.map((bucket) => (
+                <RibPipelineStageCard
+                  key={bucket.id}
+                  bucket={bucket}
+                  active={activeStage === bucket.id}
+                />
+              ))}
+            </div>
+          ) : pipelineLoading ? (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 lg:gap-4">
+              <SkeletonBlock className="h-24" />
+              <SkeletonBlock className="h-24" />
+              <SkeletonBlock className="h-24" />
+              <SkeletonBlock className="h-24" />
+              <SkeletonBlock className="h-24" />
+              <SkeletonBlock className="h-24" />
+            </div>
+          ) : (
+            <p className="rounded-xl border border-ims-line bg-slate-50 px-3 py-3 text-sm text-slate-600">
+              {pipelineError
+                ? "Pipeline counts could not be loaded. Pull to refresh or open the app again."
+                : "No pipeline stages yet."}
+            </p>
+          )}
+        </section>
+      ) : (
+        <section className="ims-dash-panel p-4 sm:p-5">
+          <h2 className="mb-3 text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">
+            <span className="lg:hidden">Status Overview</span>
+            <span className="hidden lg:inline">Overview</span>
+          </h2>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+            <StatCard to="/chola360/leads?list=1" label="Total Property Leads" value={data.total} tone="sky" art="properties" />
+            <StatCard to="/chola360/leads?state=Re-Work" label="Re-work Leads" value={data.rework} tone="lilac" art="rework" />
+            <StatCard to="/chola360/leads?state=Rejected" label="Rejected Leads" value={data.rejected} tone="rose" art="rejected" />
+            <StatCard to="/chola360/leads?state=Approved" label="Approved Leads" value={data.approved} tone="mint" art="completed" />
+          </div>
+        </section>
+      )}
 
       {ribpMode ? (
-        <section className="ims-card overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-            <div>
-              <h2 className="text-[17px] font-semibold text-ims-ink">Leads by State</h2>
-              <p className="text-sm text-slate-500">
-                Open a state to see regions. Requests open only after you pick a region.
-              </p>
+        <section className="ims-dash-panel p-4 sm:p-5">
+          <h2 className="mb-3 text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">
+            Status Overview
+          </h2>
+          <div className="space-y-3">
+            <Link
+              to="/chola360/leads?state=Awaiting%20Approval,On%20Hold"
+              className="ims-stat-peach flex min-h-[72px] items-center justify-between gap-3 rounded-2xl border px-4 py-3 no-underline shadow-[0_4px_14px_rgba(31,37,71,0.04)] sm:min-h-[80px] sm:px-5"
+            >
+              <span className="text-[14px] font-semibold text-ims-ink sm:text-[15px]">SLA Overdue</span>
+              <span className="text-[28px] font-bold tabular-nums leading-none tracking-tight text-ims-ink sm:text-[32px]">
+                {slaOverdue}
+              </span>
+            </Link>
+            <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+              <StatusMiniCard
+                to="/chola360/leads?state=Draft,Awaiting%20Approval,On%20Hold"
+                label="Pending Leads"
+                value={pendingLeads}
+                tone="gold"
+              />
+              <StatusMiniCard
+                to="/chola360/leads?state=Re-Work"
+                label="Re-work Leads"
+                value={data.rework}
+                tone="lilac"
+              />
+              <StatusMiniCard
+                to="/chola360/leads?state=Rejected"
+                label="Rejected Leads"
+                value={data.rejected}
+                tone="rose"
+              />
             </div>
           </div>
-          <ul className="space-y-3 px-4 pb-4">
-            {geoStates.length === 0 ? (
-              <li className="rounded-xl border border-ims-line px-4 py-5 text-sm text-slate-500">No state groups yet.</li>
+        </section>
+      ) : null}
+
+      {ribpMode ? (
+        <section className="ims-dash-panel overflow-hidden">
+          <div className="px-4 py-4 sm:px-5">
+            <h2 className="text-[20px] font-semibold text-ims-ink lg:text-[17px] lg:font-medium">Leads by Area</h2>
+          </div>
+          <ul className="space-y-3 px-4 pb-4 sm:px-5">
+            {data.by_branch.length === 0 ? (
+              <li className="rounded-xl border border-ims-line px-4 py-5 text-sm text-slate-500">No area groups yet.</li>
             ) : (
-              geoStates.map((row) => <GeoStateCard key={row.state} row={row} />)
+              data.by_branch.map((row) => <AreaCard key={row.branch} row={row} />)
             )}
           </ul>
         </section>
       ) : (
-        <section className="ims-card overflow-hidden">
+        <section className="ims-dash-panel overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
             <div>
               <h2 className="text-[17px] font-semibold text-ims-ink">Leads by Branch</h2>
@@ -87,7 +175,7 @@ export function LeadDashboard({ data, ribpMode = false }: { data: LeadHomeData; 
       )}
 
       {!ribpMode && data.leads.length > 0 ? (
-        <section className="ims-card overflow-hidden">
+        <section className="ims-dash-panel overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
             <div>
               <h2 className="text-[17px] font-semibold text-ims-ink">Recent Leads</h2>
@@ -102,7 +190,7 @@ export function LeadDashboard({ data, ribpMode = false }: { data: LeadHomeData; 
             rows={data.leads.slice(0, 10)}
             emptyTitle="No leads"
             emptyBody="Create a property lead to get started."
-            href={(row) => `/chola360/leads/${encodeURIComponent(row.name)}`}
+            href={(row) => `/chola360/leads/${encodeURIComponent(row.name)}/approval`}
             columns={[
               {
                 key: "property_id",
@@ -150,24 +238,12 @@ export function LeadDashboard({ data, ribpMode = false }: { data: LeadHomeData; 
   );
 }
 
-function deriveGeoStates(branches: LeadBranchGroup[]): LeadGeoStateGroup[] {
-  const map = new Map<string, LeadGeoStateGroup>();
-  for (const row of branches) {
-    const state = (row.geo_state || "Unassigned").trim() || "Unassigned";
-    const bucket = map.get(state) || { state, lead_count: 0, branch_count: 0 };
-    bucket.lead_count += row.lead_count;
-    bucket.branch_count += 1;
-    map.set(state, bucket);
-  }
-  return [...map.values()].sort((a, b) => b.lead_count - a.lead_count || a.state.localeCompare(b.state));
-}
-
 function regionHref(row: LeadBranchGroup) {
   const params = new URLSearchParams();
-  const area = (row.area || row.branch || "").trim();
-  if (area) params.set("area", area);
-  else if (row.region) params.set("region", row.region);
-  else params.set("branch", row.branch);
+  // Match get_lead_home grouping: category = area || region || location_details
+  if ((row.area || "").trim()) params.set("area", row.area!.trim());
+  else if ((row.region || "").trim()) params.set("region", row.region!.trim());
+  else params.set("location", (row.branch || "").trim());
   return `/chola360/leads?${params.toString()}`;
 }
 
@@ -176,6 +252,32 @@ function regionSubtitle(row: LeadBranchGroup) {
   if (row.region && row.region !== row.branch) parts.push(row.region);
   if ((row.location_count || 0) > 1) parts.push(`${row.location_count} locations`);
   return parts.join(" · ") || "—";
+}
+
+function StatusMiniCard({
+  to,
+  label,
+  value,
+  tone,
+}: {
+  to: string;
+  label: string;
+  value: number;
+  tone: "gold" | "lilac" | "rose";
+}) {
+  const toneClass =
+    tone === "gold" ? "ims-stat-gold" : tone === "lilac" ? "ims-stat-lilac" : "ims-stat-rose";
+  return (
+    <Link
+      to={to}
+      className={`${toneClass} flex min-h-[88px] flex-col justify-between rounded-2xl border px-2.5 py-2.5 no-underline shadow-[0_4px_14px_rgba(31,37,71,0.04)] sm:min-h-[96px] sm:px-3 sm:py-3`}
+    >
+      <span className="text-[11px] font-semibold leading-snug text-ims-ink sm:text-[12px]">{label}</span>
+      <span className="text-[24px] font-bold tabular-nums leading-none tracking-tight text-ims-ink sm:text-[28px]">
+        {value}
+      </span>
+    </Link>
+  );
 }
 
 function BranchCard({ row }: { row: LeadBranchGroup }) {
@@ -195,22 +297,22 @@ function BranchCard({ row }: { row: LeadBranchGroup }) {
   );
 }
 
-function GeoStateCard({ row }: { row: LeadGeoStateGroup }) {
-  const params = new URLSearchParams();
-  params.set("geo_state", row.state);
+function AreaCard({ row }: { row: LeadBranchGroup }) {
+  const branches = row.location_count || 1;
   return (
     <li>
       <Link
-        to={`/chola360/leads?${params.toString()}`}
-        className="flex items-center justify-between gap-3 rounded-2xl border border-ims-line bg-white px-4 py-4 no-underline shadow-[0_4px_14px_rgba(31,37,71,0.04)]"
+        to={regionHref(row)}
+        className="flex items-center justify-between gap-3 rounded-2xl border border-ims-line bg-white px-4 py-3.5 no-underline shadow-[0_4px_14px_rgba(31,37,71,0.04)] transition-shadow hover:shadow-[0_10px_26px_rgba(31,37,71,0.1)]"
       >
         <div className="min-w-0">
-          <p className="truncate text-[16px] font-semibold text-ims-ink">{row.state} Region</p>
+          <p className="truncate text-[16px] font-semibold text-ims-ink">{row.branch}</p>
           <p className="mt-0.5 text-xs text-slate-500">
-            {row.branch_count} {row.branch_count === 1 ? "Area" : "Areas"} · {row.lead_count}{" "}
-            {row.lead_count === 1 ? "Property" : "Properties"}
+            {branches} {branches === 1 ? "Branch" : "Branches"} · {row.lead_count}{" "}
+            {row.lead_count === 1 ? "Lead" : "Leads"}
           </p>
         </div>
+        <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
       </Link>
     </li>
   );

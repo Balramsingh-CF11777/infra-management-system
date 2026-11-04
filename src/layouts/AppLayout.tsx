@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Bell,
@@ -25,6 +25,7 @@ import { logout } from "@/api/auth";
 import { queryKeys } from "@/api/keys";
 import { OfflineBanner } from "@/components/common/OfflineBanner";
 import { bottomNavigationForUser, modulesForRole, visibleNavigation } from "@/config/navigation";
+import { isLeadVerificationFlowPath, isSiteImageCapturePath } from "@/features/leads/VerificationFlowTopBar";
 import { usesMisDashboard } from "@/lib/misAccess";
 import { useSession } from "@/stores/session";
 import Logo from "@/assets/design/chola-white.webp";
@@ -56,6 +57,9 @@ export function AppLayout() {
   const [query, setQuery] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const flowTopChrome = isLeadVerificationFlowPath(location.pathname);
+  const siteImageCapture = isSiteImageCapturePath(location.pathname);
   const misDashboard = usesMisDashboard(user);
   const pending = useQuery({ queryKey: queryKeys.pending, queryFn: getMyPendingActions, enabled: !misDashboard });
   const roleModules = modulesForRole(user, activeRole);
@@ -158,7 +162,13 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-ims-bg lg:h-auto lg:min-h-screen lg:overflow-visible">
+    <div
+      className={[
+        "flex h-dvh min-h-0 flex-col overflow-hidden lg:h-auto lg:min-h-screen lg:overflow-visible",
+        // Match the flow bar so pull-to-overscroll does not flash the light app bg.
+        flowTopChrome ? "bg-[#283769] lg:bg-ims-bg" : "bg-ims-bg",
+      ].join(" ")}
+    >
       <OfflineBanner />
       <aside
         className={`fixed inset-y-0 left-0 z-40 flex w-[min(18rem,85vw)] flex-col overflow-y-auto bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl transition-transform lg:hidden ${open ? "translate-x-0" : "-translate-x-full"}`}
@@ -224,13 +234,21 @@ export function AppLayout() {
         />
       )}
 
-      <header className="ims-header-bg sticky top-0 z-20 shrink-0 text-white">
+      <header
+        className={`ims-header-bg sticky top-0 z-20 shrink-0 text-white ${
+          flowTopChrome && !siteImageCapture ? "hidden lg:block" : ""
+        }`}
+      >
         <div className="mx-auto box-content flex h-14 max-w-[1440px] items-center gap-3 px-3 pt-[env(safe-area-inset-top)] sm:px-5 lg:h-16">
           <button type="button" className="rounded-lg p-2 lg:hidden" aria-label="Open menu" onClick={() => setOpen(true)}>
             <Menu />
           </button>
-          <div className="flex flex-1 justify-center lg:flex-none lg:justify-start">
-            <img src={Logo} alt="Chola" className="h-8 w-auto lg:h-9" />
+          <div className="flex min-w-0 flex-1 justify-center lg:flex-none lg:justify-start">
+            {siteImageCapture ? (
+              <h1 className="truncate text-[17px] font-bold leading-6 text-white lg:text-[18px]">Site Image Capture</h1>
+            ) : (
+              <img src={Logo} alt="Chola" className="h-8 w-auto lg:h-9" />
+            )}
           </div>
           <nav className="ml-6 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto lg:flex scroll-row" aria-label="Primary">
             {items.map((item) => {
@@ -330,9 +348,21 @@ export function AppLayout() {
           </div>
         </div>
       </header>
-      <div className="ims-header-bg -mt-px h-7 shrink-0 lg:hidden" aria-hidden />
+      <div
+        className={`ims-header-bg -mt-px h-7 shrink-0 lg:hidden ${
+          flowTopChrome && !siteImageCapture ? "hidden" : ""
+        }`}
+        aria-hidden
+      />
 
-      <main className="relative z-10 mx-auto -mt-7 min-h-0 w-full min-w-0 max-w-[1440px] flex-1 overflow-y-auto overscroll-y-contain rounded-t-[28px] bg-ims-surface px-3 py-5 pb-5 sm:px-5 lg:mt-0 lg:flex-none lg:overflow-visible lg:rounded-none lg:bg-transparent lg:px-6 lg:py-6 lg:pb-10">
+      <main
+        className={[
+          "relative z-10 mx-auto min-h-0 w-full min-w-0 max-w-[1440px] flex-1 overflow-y-auto overscroll-y-contain bg-ims-surface px-3 pb-5 sm:px-5 lg:mt-0 lg:flex-none lg:overflow-visible lg:rounded-none lg:bg-transparent lg:px-6 lg:py-6 lg:pb-10",
+          flowTopChrome && !siteImageCapture
+            ? "mt-0 rounded-none pb-5 pt-0 lg:pt-6"
+            : "-mt-7 rounded-t-[28px] py-5",
+        ].join(" ")}
+      >
         <Outlet />
       </main>
 

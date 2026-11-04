@@ -1,15 +1,45 @@
 import type { ReactNode } from "react";
 import { FieldSelect } from "@/components/common/FieldSelect";
+import { FloatField, floatControlClass } from "@/components/common/FloatField";
 import type { PackField } from "@/features/leads/leadPackFields";
 
+/** Value line inside the shared floating-label box. */
+export const PACK_CONTROL_CLASS = floatControlClass;
+
+/** Labelled field chrome shared by Property, Owner, and Facility details. */
+export function PackFieldShell({
+  label,
+  required = false,
+  children,
+  className = "",
+  autoHeight = false,
+}: {
+  label: string;
+  required?: boolean;
+  children: ReactNode;
+  className?: string;
+  autoHeight?: boolean;
+}) {
+  return (
+    <FloatField label={`${label.trim()}${required ? " *" : ""}`} className={className} autoHeight={autoHeight}>
+      {children}
+    </FloatField>
+  );
+}
+
+function rulesMatch(rule: PackField["showWhen"], values: Record<string, string>) {
+  if (!rule) return true;
+  const rules = Array.isArray(rule) ? rule : [rule];
+  return rules.every((item) => values[item.key] === item.equals);
+}
+
 export function packVisible(field: PackField, values: Record<string, string>) {
-  if (!field.showWhen) return true;
-  return values[field.showWhen.key] === field.showWhen.equals;
+  return rulesMatch(field.showWhen, values);
 }
 
 export function packRequired(field: PackField, values: Record<string, string>) {
   if (!field.requiredWhen) return false;
-  return values[field.requiredWhen.key] === field.requiredWhen.equals;
+  return rulesMatch(field.requiredWhen, values);
 }
 
 export function missingPackFields(fields: PackField[], values: Record<string, string>) {
@@ -59,33 +89,36 @@ function PackControl({
   const options = field.options.some((option) => option === value) || !value
     ? field.options
     : [value, ...field.options];
+  const control = (
+    <input
+      className={PACK_CONTROL_CLASS}
+      placeholder={field.key === "rent_per_sq_feet" ? "Monthly rent ÷ built-up area" : "Enter"}
+      inputMode={field.kind === "number" ? "decimal" : undefined}
+      readOnly={field.key === "rent_per_sq_feet"}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+  if (field.kind === "select") {
+    return (
+      <FieldSelect
+        floated
+        label={`${field.label.trim()}${required ? " *" : ""}`}
+        value={value}
+        placeholder="Select"
+        options={options.map((option) => ({ value: option, label: option }))}
+        onChange={onChange}
+      />
+    );
+  }
   return (
-    <label className="block h-full min-w-0 space-y-1.5 rounded-2xl border border-ims-line bg-white px-3.5 py-3 shadow-[0_4px_14px_rgba(31,37,71,0.04)]">
-      <span className="block break-words text-[13px] font-semibold leading-snug text-ims-ink">
-        {field.label.trim()}
-        {required ? " *" : ""}
-      </span>
-      <div className="min-w-0 max-w-full [&_.ims-field]:w-full [&_input]:w-full [&_textarea]:w-full">
-        {field.kind === "textarea" ? (
-          <textarea className="ims-field mt-1 min-h-[72px] w-full" value={value} onChange={(event) => onChange(event.target.value)} />
-        ) : field.kind === "select" ? (
-          <FieldSelect
-            className="mt-1"
-            value={value}
-            placeholder="Select"
-            options={options.map((option) => ({ value: option, label: option }))}
-            onChange={onChange}
-          />
-        ) : (
-          <input
-            className="ims-field mt-1 w-full"
-            inputMode={field.kind === "number" ? "decimal" : undefined}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-          />
-        )}
-      </div>
-    </label>
+    <PackFieldShell label={field.label} required={required}>
+      {field.kind === "textarea" ? (
+        <textarea className={`${PACK_CONTROL_CLASS} resize-none`} rows={1} placeholder="Enter" value={value} onChange={(event) => onChange(event.target.value)} />
+      ) : (
+        control
+      )}
+    </PackFieldShell>
   );
 }
 

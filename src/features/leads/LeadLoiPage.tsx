@@ -1,21 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getLeadDetail, saveLeadPropertyDetails } from "@/api/leads";
-import { queryKeys } from "@/api/keys";
+import { useNavigate, useParams } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
+import { Download, Phone, Upload } from "lucide-react";
+import { sendLoiConsentOtp, uploadLeadDmsFile, verifyLoiConsentOtp } from "@/api/leads";
 import { BackButton } from "@/components/common/BackButton";
 import { EmptyState, SkeletonBlock } from "@/components/common/EmptyState";
-import { FieldSelect } from "@/components/common/FieldSelect";
 import { runtimeConfig } from "@/config/runtime";
-import { sectionLocked } from "@/features/leads/sectionReview";
+import { FixedFlowChrome } from "@/features/leads/FixedFlowChrome";
+import { SectionAwaitingApproval } from "@/features/leads/SectionAwaitingApproval";
+import { SectionReviewBar, useCanEditLead, useSectionReviewAccess } from "@/features/leads/SectionReviewBar";
+import { sectionAwaitingApproval, sectionLocked } from "@/features/leads/sectionReview";
+import { usePropertyRecord } from "@/features/leads/usePropertyRecord";
 import { ApiError } from "@/types/api";
 
-const CONSENT = [
-  { value: "Pending", label: "Pending" },
-  { value: "Sent", label: "Sent" },
-  { value: "Verified", label: "Verified" },
-  { value: "Uploaded", label: "Uploaded" },
-];
+const OTP_LENGTH = 6;
+const SIGNED_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+const SIGNED_EXT = ["pdf", "jpg", "jpeg", "png"];
+const SIGNED_LIMIT = 10 * 1024 * 1024;
 
 const TERM = "border border-black px-2 py-2 align-top font-bold";
 const VALUE = "border border-black px-2 py-2 align-top font-normal";
@@ -45,90 +46,399 @@ function formatLoiDate(value: unknown) {
   return `${day}-${month}-${date.getFullYear()}`;
 }
 
+function phoneLabel(value: string) {
+  const digits = value.replace(/[^\d]/g, "");
+  if (digits.length === 10) return `91-${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return `91-${digits.slice(2)}`;
+  return value;
+}
+
+function consentTone(status: string) {
+  const key = status.toLowerCase();
+  if (key === "verified" || key === "uploaded") return "bg-[#E5F8EC] text-[#1F8A4C]";
+  if (key === "sent") return "bg-[#E8F1FF] text-[#2F6FED]";
+  return "bg-[#FFF1E0] text-[#C27803]";
+}
+
+function clock(total: number) {
+  const safe = Math.max(0, total);
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function ExportButton({ className = "" }: { className?: string }) {
+  return (
+    <button
+      type="button"
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-lg text-ims-primary ${className}`}
+      aria-label="Export LOI"
+      onClick={() => window.print()}
+    >
+      <Download className="h-5 w-5" />
+    </button>
+  );
+}
+
 function fileUrl(path: string) {
   const base = runtimeConfig.frappeUrl.replace(/\/+$/, "");
   return `${base}${path}`;
 }
 
-type Owner = { owner_landlord_name?: string; complete_address_of_the_owner?: string };
+type Owner = {
+  owner_type?: string;
+  owner_landlord_name?: string;
+  owner_phone_number?: string;
+  complete_address_of_the_owner?: string;
+};
 type ScopeRow = { work_performed_by?: string; scope_of_work?: string; work_specification?: string };
 
 export function LeadLoiPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { id = "" } = useParams();
   const name = decodeURIComponent(id);
-  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const record = usePropertyRecord(name);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [consent, setConsent] = useState("");
+  const [signedCopy, setSignedCopy] = useState("");
+  const [signedName, setSignedName] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
-
-  const detail = useQuery({
-    queryKey: queryKeys.leadDetail(name),
-    queryFn: () => getLeadDetail(name),
-    enabled: Boolean(name),
-  });
+  const [otpOpen, setOtpOpen] = useState(false);
+  const [otpDigits, setOtpDigits] = useState<string[]>(() => Array(OTP_LENGTH).fill(""));
+  const [otpLeft, setOtpLeft] = useState(0);
+  const [otpError, setOtpError] = useState("");
+  const detail = record.detail;
 
   useEffect(() => {
     if (!detail.data) return;
-    setConsent(text((detail.data as Record<string, unknown>).loi_consent_status));
+    const lead = detail.data as Record<string, unknown>;
+    setConsent(text(lead.loi_consent_status));
+    setSignedCopy(text(lead.loi_signed_copy));
   }, [detail.data]);
 
-  const save = useMutation({
-    mutationFn: () => saveLeadPropertyDetails(name, { loi_consent_status: consent }),
-    onSuccess: async () => {
+  useEffect(() => {
+    if (!otpOpen) return;
+    const timer = window.setInterval(() => {
+      setOtpLeft((current) => (current > 0 ? current - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [otpOpen]);
+
+  const leadForAccess = (detail.data || {}) as Record<string, unknown>;
+  const { canApprove } = useSectionReviewAccess(leadForAccess);
+  const leadCanEdit = useCanEditLead(leadForAccess);
+  const canEdit = record.prospectMode ? !record.converted : leadCanEdit;
+
+  const sendOtp = useMutation({
+    mutationFn: () => sendLoiConsentOtp(name),
+    onSuccess: async (result) => {
       setError("");
-      setSaved("Consent status saved.");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.leadDetail(name) });
+      setOtpError("");
+      setOtpDigits(Array(OTP_LENGTH).fill(""));
+      setOtpLeft(result.expires_in || 300);
+      setConsent("Sent");
+      setOtpOpen(true);
+      await record.refresh();
+      window.setTimeout(() => otpRefs.current[0]?.focus(), 50);
     },
     onError: (err) => {
-      setSaved("");
-      setError(err instanceof ApiError ? err.message : "Could not save LOI consent.");
+      setOtpOpen(false);
+      setError(err instanceof ApiError ? err.message : "Could not send the OTP.");
     },
   });
 
-  if (detail.isLoading) return <SkeletonBlock className="h-64" />;
-  if (detail.isError || !detail.data) {
+  const verifyOtp = useMutation({
+    mutationFn: () => verifyLoiConsentOtp(name, otpDigits.join("")),
+    onSuccess: async () => {
+      setOtpError("");
+      setOtpOpen(false);
+      setConsent("Verified");
+      setSaved("Owner OTP verified.");
+      await record.refresh();
+    },
+    onError: (err) => {
+      setOtpError(err instanceof ApiError ? err.message : "Could not verify the OTP.");
+    },
+  });
+
+  const uploadSigned = useMutation({
+    mutationFn: async (file: File) => {
+      const uploaded = await uploadLeadDmsFile(file, "Signed LOI");
+      await record.saveDetails({
+        loi_signed_copy: uploaded.file_url,
+        loi_consent_status: "Uploaded",
+      });
+      return uploaded;
+    },
+    onSuccess: async (uploaded) => {
+      setError("");
+      setSignedCopy(uploaded.file_url);
+      setSignedName(uploaded.file_name);
+      setConsent("Uploaded");
+      setSaved("Signed LOI uploaded.");
+      await record.refresh();
+    },
+    onError: (err) => {
+      setSaved("");
+      setError(err instanceof ApiError ? err.message : "Could not upload the signed LOI.");
+    },
+  });
+
+  if (detail.isError || (!detail.isLoading && !detail.data)) {
     return <EmptyState title="Lead unavailable" body="LOI generation needs a valid Lead Request." />;
   }
 
-  const lead = detail.data as Record<string, unknown>;
+  const lead = leadForAccess;
+  const awaiting = !record.prospectMode && sectionAwaitingApproval(lead, "LOI Generation") && !canApprove;
+  const fieldsLocked = record.prospectMode ? false : sectionLocked(lead, "LOI Generation");
+  const owners = (Array.isArray(lead.owner_details) ? lead.owner_details : []) as Owner[];
+  const landlord = owners.find((owner) => text(owner.owner_type).toLowerCase() === "primary");
+  const landlordName = text(landlord?.owner_landlord_name);
+  const landlordPhone = phoneLabel(text(landlord?.owner_phone_number));
+  const consentLabel = consent || "Pending";
+  const backFallback = record.hub;
+  const otpReady = otpDigits.every((digit) => digit.length === 1);
+  const busy = sendOtp.isPending || verifyOtp.isPending || uploadSigned.isPending;
+
+  function onSignedFile(file: File | undefined) {
+    if (!file) return;
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+    if (!SIGNED_EXT.includes(extension) && !SIGNED_TYPES.includes(file.type)) {
+      setError("Upload a PDF, JPG, or PNG.");
+      return;
+    }
+    if (file.size > SIGNED_LIMIT) {
+      setError("Signed LOI must be 10 MB or smaller.");
+      return;
+    }
+    setError("");
+    setSignedName(file.name);
+    uploadSigned.mutate(file);
+  }
+
+  function onOtpChange(index: number, raw: string) {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) {
+      setOtpDigits((current) => current.map((item, itemIndex) => (itemIndex === index ? "" : item)));
+      return;
+    }
+    setOtpDigits((current) => {
+      const next = [...current];
+      digits.slice(0, OTP_LENGTH - index).split("").forEach((digit, offset) => {
+        next[index + offset] = digit;
+      });
+      return next;
+    });
+    const focusAt = Math.min(index + digits.length, OTP_LENGTH - 1);
+    otpRefs.current[focusAt]?.focus();
+  }
 
   return (
-    <section className="w-full min-w-0 space-y-4">
+    <section className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden">
       <style>{`
-        @page { size: A4; margin: 12mm; }
+        @page { size: A4 portrait; margin: 10mm; }
         @media print {
-          body * { visibility: hidden; }
-          .loi-print, .loi-print * { visibility: visible; }
-          .loi-preview, .loi-scale-box { overflow: visible !important; width: auto !important; height: auto !important; background: white !important; padding: 0 !important; }
-          .loi-print { position: absolute; left: 0; top: 0; width: 210mm !important; min-height: auto !important; transform: none !important; box-shadow: none !important; }
+          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+          body > *:not(.loi-print) { display: none !important; }
+          body > .loi-print {
+            display: block !important;
+            visibility: visible !important;
+            position: static !important;
+            width: auto !important;
+            max-width: 100% !important;
+            min-height: 0 !important;
+            transform: none !important;
+            box-shadow: none !important;
+            color: #000 !important;
+            background: #fff !important;
+          }
         }
       `}</style>
       {embedded ? null : (
-        <div className="flex items-start gap-3 print:hidden">
-          <BackButton className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-ims-ink ring-1 ring-ims-line" />
-          <div className="min-w-0">
-            <h1 className="text-[15px] font-semibold text-ims-ink">LOI Generation</h1>
-            <p className="mt-0.5 text-[11px] text-slate-500">Filled from the fields saved on this lead.</p>
+        <>
+          <div className="print:hidden lg:hidden">
+            <FixedFlowChrome>
+              <div className="bg-[linear-gradient(110deg,#283769,#4b2448)] px-3 pb-4 pt-2 text-white sm:px-5">
+                <div className="flex items-center gap-2 pt-[env(safe-area-inset-top)]">
+                  <BackButton
+                    fallback={backFallback}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white"
+                    iconClassName="h-5 w-5"
+                  />
+                  <h1 className="min-w-0 flex-1 truncate text-[18px] font-bold leading-6 text-white">LOI Generation & Consent</h1>
+                </div>
+              </div>
+            </FixedFlowChrome>
           </div>
-        </div>
+          <div className="hidden items-start gap-3 print:hidden lg:flex">
+            <BackButton
+              fallback={backFallback}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-ims-ink ring-1 ring-ims-line"
+            />
+            <div className="min-w-0">
+              <h1 className="text-[15px] font-semibold text-ims-ink">LOI Generation</h1>
+              <p className="mt-0.5 text-[11px] text-slate-500">Filled from the fields saved on this lead.</p>
+            </div>
+          </div>
+        </>
       )}
 
-      <LoiLetter lead={lead} />
+      {detail.isLoading ? (
+        <SkeletonBlock className="h-64" />
+      ) : awaiting ? (
+        <SectionAwaitingApproval lead={lead} sectionLabel="LOI Generation" />
+      ) : (
+        <>
+          <div className="space-y-3 print:hidden">
+            <article className="rounded-2xl border border-ims-line bg-white p-4 shadow-[0_4px_14px_rgba(31,37,71,0.04)]">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-[16px] font-semibold text-ims-ink">Generated LOI</h2>
+                <ExportButton />
+              </div>
+              <LoiLetter lead={lead} />
+            </article>
+            <article className="rounded-2xl border border-ims-line bg-white p-4 shadow-[0_4px_14px_rgba(31,37,71,0.04)]">
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-[16px] font-semibold text-ims-ink">Landlord LOI Consent</h2>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold ${consentTone(consentLabel)}`}>
+                  {consentLabel}
+                </span>
+              </div>
+              <div className="mt-4 flex items-center gap-3 rounded-2xl border border-ims-line px-4 py-4">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[16px] font-semibold text-ims-ink">{landlordName || "No primary owner"}</p>
+                  {landlordName ? <p className="mt-0.5 text-[12px] font-semibold text-ims-primary">Primary</p> : null}
+                  <p className="mt-1 flex items-center gap-1.5 text-[13px] text-slate-500">
+                    <Phone className="h-3.5 w-3.5" aria-hidden />
+                    {landlordPhone || "No phone saved"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="ims-btn-primary min-h-11 shrink-0 rounded-xl px-5"
+                  disabled={busy || fieldsLocked || !canEdit || !landlordPhone}
+                  onClick={() => sendOtp.mutate()}
+                >
+                  {sendOtp.isPending ? "Sending…" : "Send OTP"}
+                </button>
+              </div>
+            </article>
 
-      <div className="flex flex-col gap-3 print:hidden sm:flex-row sm:items-end">
-        <label className="block min-w-0 flex-1 space-y-1.5">
-          <span className="text-[13px] font-semibold text-ims-ink">Consent status</span>
-          <FieldSelect value={consent} placeholder="Select" options={CONSENT} onChange={setConsent} />
-        </label>
-        <button type="button" className="ims-btn-secondary min-h-12 sm:w-auto" onClick={() => window.print()}>
-          Print / Download
-        </button>
-        <button type="button" className="ims-btn-primary min-h-12 sm:w-auto" disabled={save.isPending || sectionLocked(lead, "Property Verification")} onClick={() => save.mutate()}>
-          {save.isPending ? "Saving…" : "Save"}
-        </button>
-      </div>
-      {error ? <p className="text-sm text-rose-600 print:hidden">{error}</p> : null}
-      {saved ? <p className="text-sm text-emerald-700 print:hidden">{saved}</p> : null}
+            <div className="flex items-center gap-3 px-2 py-1 text-[13px] text-slate-400">
+              <span className="h-px flex-1 bg-slate-200" />
+              Or
+              <span className="h-px flex-1 bg-slate-200" />
+            </div>
+
+            <article className="rounded-2xl border border-ims-line bg-white p-4 shadow-[0_4px_14px_rgba(31,37,71,0.04)]">
+              <h2 className="text-[16px] font-semibold text-ims-ink">Already Have Signed LOI ?</h2>
+              <button
+                type="button"
+                className="mt-3 flex w-full flex-col items-center rounded-2xl border border-dashed border-[#D5D8E8] bg-[#FAFBFF] px-4 py-3 text-center disabled:opacity-60"
+                disabled={busy || fieldsLocked || !canEdit}
+                onClick={() => fileRef.current?.click()}
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#EEF0FF] text-ims-primary">
+                  <Upload className="h-4 w-4" />
+                </span>
+                <span className="mt-1.5 text-[15px] font-semibold text-ims-primary">
+                  {uploadSigned.isPending ? "Uploading…" : "Upload the Signed Copy"}
+                </span>
+                <span className="mt-1 text-[12px] text-slate-400">PDF, JPG or PNG · Upto 10 MB</span>
+                {signedCopy ? (
+                  <span className="mt-2 max-w-full truncate text-[12px] font-medium text-slate-500">
+                    {signedName || "Signed copy saved"}
+                  </span>
+                ) : null}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  onSignedFile(file);
+                }}
+              />
+            </article>
+
+            <button type="button" className="ims-btn-primary min-h-12 w-full" onClick={() => navigate(backFallback)}>
+              Done
+            </button>
+          </div>
+          {error ? <p className="text-sm text-rose-600 print:hidden">{error}</p> : null}
+          {saved ? <p className="text-sm text-emerald-700 print:hidden">{saved}</p> : null}
+          <div className="print:hidden">
+            {record.prospectMode ? null : <SectionReviewBar name={name} lead={lead} section="LOI Generation" />}
+          </div>
+          {otpOpen ? (
+            <div className="fixed inset-0 z-[2200] flex items-end justify-center bg-black/45 pb-[calc(3.5rem+env(safe-area-inset-bottom))] print:hidden lg:pb-0" role="presentation">
+              <button type="button" className="absolute inset-0 cursor-default" aria-label="Close OTP" onClick={() => setOtpOpen(false)} />
+              <div className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col rounded-t-[28px] bg-white px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="loi-otp-title">
+                <span className="mx-auto mb-4 block h-1.5 w-10 shrink-0 rounded-full bg-slate-200" />
+                <h2 id="loi-otp-title" className="shrink-0 text-center text-[20px] font-bold text-ims-ink">
+                  Consent OTP Verification
+                </h2>
+                <div className="mt-6 flex justify-between gap-2">
+                  {otpDigits.map((digit, index) => (
+                    <input
+                      key={`otp-${index}`}
+                      ref={(node) => {
+                        otpRefs.current[index] = node;
+                      }}
+                      inputMode="numeric"
+                      autoComplete={index === 0 ? "one-time-code" : "off"}
+                      maxLength={index === 0 ? OTP_LENGTH : 1}
+                      className="h-12 w-11 rounded-xl border border-[#E4E7F2] text-center text-[18px] font-semibold text-ims-ink outline-none focus:border-ims-primary"
+                      value={digit}
+                      placeholder="–"
+                      onChange={(event) => onOtpChange(index, event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Backspace" && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="mt-4 text-[13px] text-slate-500">
+                  {otpLeft > 0 ? `Resend OTP in ${clock(otpLeft)}` : "OTP expired."}{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-ims-primary disabled:opacity-50"
+                    disabled={sendOtp.isPending || fieldsLocked || !canEdit}
+                    onClick={() => sendOtp.mutate()}
+                  >
+                    Resend OTP
+                  </button>
+                </p>
+                {otpError ? <p className="mt-2 text-sm text-rose-600">{otpError}</p> : null}
+                <button
+                  type="button"
+                  className="ims-btn-primary mt-5 min-h-12 w-full shrink-0"
+                  disabled={verifyOtp.isPending}
+                  onClick={() => {
+                    if (!otpReady) {
+                      setOtpError("Enter the 6-digit OTP.");
+                      return;
+                    }
+                    if (otpLeft <= 0) {
+                      setOtpError("This OTP has expired. Send a new one.");
+                      return;
+                    }
+                    setOtpError("");
+                    verifyOtp.mutate();
+                  }}
+                >
+                  {verifyOtp.isPending ? "Checking…" : "Submit"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }
@@ -153,7 +463,7 @@ function LoiLetter({ lead }: { lead: Record<string, unknown> }) {
   return (
     <A4Preview>
       <LetterImage src={fileUrl("/files/chola_letter_head.png")} alt="Cholamandalam letterhead" />
-      <div className="space-y-4 px-10 py-8">
+      <div className="space-y-3 px-6 py-5">
         <p className="text-right">Date: {formatLoiDate(lead.date_of_proposal || lead.initiated_date)}</p>
 
         <div>
@@ -183,7 +493,7 @@ function LoiLetter({ lead }: { lead: Record<string, unknown> }) {
         </p>
         <p>The terms of the lease shall be as per below and are subject to change at the time of entering the Lease:</p>
 
-        <table className="w-full border-collapse text-left text-[13px] leading-5">
+        <table className="w-full border-collapse text-left text-[11px] leading-4">
           <tbody>
             <Row term="Proposed Premises address" value={<Lines text={address} />} />
             <Row term="Period of Lease" value={`${text(lead.lease_period)} Years`} />
@@ -240,7 +550,7 @@ function LoiLetter({ lead }: { lead: Record<string, unknown> }) {
         </table>
 
         <p className="font-bold underline">Landlord Scope of Work</p>
-        <table className="w-full border-collapse text-left text-[13px] leading-5">
+        <table className="w-full border-collapse text-left text-[11px] leading-4">
           <tbody>
             <Row term="Time to complete landlord scope of work" value="Within _________ days from the date of lease deed signing" />
             <Row
@@ -250,7 +560,7 @@ function LoiLetter({ lead }: { lead: Record<string, unknown> }) {
           </tbody>
         </table>
 
-        <table className="w-full border-collapse border border-black text-left text-[13px] leading-5">
+        <table className="w-full border-collapse border border-black text-left text-[11px] leading-4">
           <thead>
             <tr>
               <th className="w-[8%] border border-black px-2 py-2 text-center">SL No</th>
@@ -304,13 +614,47 @@ function LoiLetter({ lead }: { lead: Record<string, unknown> }) {
   );
 }
 
-/** A4 is 210mm × 297mm. The sheet stays that size and scales down to fit the screen. */
+/** On screen the letter stays in this window and scrolls. Print uses the A4 page. */
+const PREVIEW_CROP = 240;
+
 function A4Preview({ children }: { children: ReactNode }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
   const [scale, setScale] = useState(1);
   const [pageWidth, setPageWidth] = useState(794);
   const [sheetHeight, setSheetHeight] = useState(1123);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+
+  useEffect(() => {
+    const onBeforePrint = () => {
+      const sheet = sheetRef.current;
+      if (!sheet || sheet.parentElement === document.body) return;
+      const marker = document.createElement("div");
+      marker.dataset.loiPlaceholder = "1";
+      sheet.replaceWith(marker);
+      sheet.style.transform = "none";
+      sheet.style.width = "auto";
+      sheet.style.minHeight = "0";
+      document.body.appendChild(sheet);
+    };
+    const onAfterPrint = () => {
+      const sheet = sheetRef.current;
+      const marker = document.querySelector("[data-loi-placeholder]");
+      if (!sheet || !marker) return;
+      sheet.style.transform = `scale(${scaleRef.current})`;
+      sheet.style.width = "210mm";
+      sheet.style.minHeight = "297mm";
+      marker.replaceWith(sheet);
+    };
+    window.addEventListener("beforeprint", onBeforePrint);
+    window.addEventListener("afterprint", onAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", onBeforePrint);
+      window.removeEventListener("afterprint", onAfterPrint);
+      onAfterPrint();
+    };
+  }, []);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -318,24 +662,36 @@ function A4Preview({ children }: { children: ReactNode }) {
     if (!frame || !sheet) return;
     const measure = () => {
       const width = sheet.offsetWidth || 794;
-      const available = Math.max(frame.clientWidth - 32, 240);
+      const available = frame.clientWidth;
+      const nextScale = available > 80 ? Math.min(1, available / width) : 1;
       setPageWidth(width);
-      setScale(Math.min(1, available / width));
+      setScale(nextScale);
       setSheetHeight(Math.max(sheet.scrollHeight, sheet.offsetHeight, 1123));
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(frame);
     observer.observe(sheet);
-    return () => observer.disconnect();
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
   }, []);
 
+  const fittedWidth = Math.max(pageWidth * scale, 1);
+  const fittedHeight = Math.max(sheetHeight * scale, PREVIEW_CROP);
+
   return (
-    <div ref={frameRef} className="loi-preview overflow-hidden rounded-xl bg-[#e4e7ee] px-4 py-5 print:rounded-none">
-      <div className="loi-scale-box mx-auto overflow-hidden" style={{ width: `${pageWidth * scale}px`, height: `${sheetHeight * scale}px` }}>
+    <div
+      ref={frameRef}
+      className="loi-preview w-full max-w-full overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-ims-line bg-white"
+      style={{ height: PREVIEW_CROP }}
+    >
+      <div className="loi-scale-box mx-auto overflow-hidden" style={{ width: `${fittedWidth}px`, height: `${fittedHeight}px` }}>
         <article
           ref={sheetRef}
-          className="loi-print origin-top-left bg-white font-serif text-[15px] leading-7 text-black shadow-[0_14px_40px_rgba(15,23,42,0.18)]"
+          className="loi-print origin-top-left bg-white font-serif text-[13px] leading-6 text-black"
           style={{ width: "210mm", minHeight: "297mm", transform: `scale(${scale})` }}
         >
           {children}

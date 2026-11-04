@@ -116,10 +116,16 @@ body {
 }
 
 /*
-  Keep form text even with body copy.
+  Form controls do not inherit the page font. Keep every text box on Poppins.
   Login keeps 16px via .login-field. Other fields match --ims-type-body so
   placeholders are not oversized vs labels.
 */
+input,
+textarea,
+select,
+button {
+  font-family: var(--font-sans);
+}
 @media (max-width: 767px) {
   input:not([type="checkbox"]):not([type="radio"]):not(.login-field),
   select:not(.login-field),
@@ -220,6 +226,17 @@ body {
   background: #fff;
   border: 1px solid #edf0f7;
   border-radius: 16px;
+}
+
+/* Dashboard Overview / table shell (Figma panel). */
+.ims-dash-panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid rgb(153 183 226 / 65%);
+  border-radius: 12px;
+  box-shadow: -1px 1px 12px rgb(0 0 0 / 8%);
 }
 
 .ims-divider {

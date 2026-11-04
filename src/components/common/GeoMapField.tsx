@@ -75,7 +75,7 @@ export function GeoMapField({
     if (!editableRef.current) return;
     setBusy(true);
     try {
-      const label = await getGeoLocation(rounded.latitude, rounded.longitude, documentName);
+      const label = (await getGeoLocation(rounded.latitude, rounded.longitude, documentName) || "").trim();
       if (label) {
         setLocationLabel(label);
         onAddressChange?.(label);

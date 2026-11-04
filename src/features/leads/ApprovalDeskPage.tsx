@@ -1,28 +1,47 @@
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, ChevronRight, FileBadge2, MapPin, PenLine, Star, UserRound, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Building2, FileBadge2, MapPin, PenLine, Star, UserRound, type LucideIcon } from "lucide-react";
 import { applyLeadWorkflowAction, applySectionReview, getLeadDetail } from "@/api/leads";
 import { queryKeys } from "@/api/keys";
+import { useSmartBack } from "@/components/common/BackButton";
 import { EmptyState, SkeletonBlock } from "@/components/common/EmptyState";
 import { GeoMapField } from "@/components/common/GeoMapField";
 import { ARBM_ROLE } from "@/lib/arbmAccess";
 import { toMapGeoJson } from "@/lib/geo";
 import { RIBP_ROLE } from "@/lib/ribAccess";
+import { HistoryTrailStageCard } from "@/features/leads/HistoryTrailStageCard";
+import {
+  resolveTrailSubSteps,
+  trailSubtitle,
+  TRAIL_SUBSTEP_LABELS,
+  type HistoryTrailStageId,
+} from "@/features/leads/historyTrailSteps";
 import { LeadCreatedSuccessSheet, leadPlaceLabel } from "@/features/leads/LeadCreatedSuccessSheet";
+import { PropertyReworkSheet } from "@/features/leads/PropertyReworkSheet";
 import { LeadVerificationForm, type StageAction } from "@/features/leads/LeadVerificationForm";
+import { useCanSubmitLeadSection } from "@/features/leads/SectionReviewBar";
+import { SitePhotoGallery } from "@/features/leads/SitePhotoGallery";
 import {
   countCompletedPropertyVerificationModules,
   PROPERTY_VERIFICATION_MODULES,
   propertyVerificationStatus,
   type PropertyVerificationModuleId,
 } from "@/features/leads/propertyVerification";
-import { isSectionApprover, milestoneOf, SECTION_BY_STAGE, sectionStatus } from "@/features/leads/sectionReview";
+import { SectionAwaitingApproval } from "@/features/leads/SectionAwaitingApproval";
+import {
+  canEditLeadFields,
+  milestoneOf,
+  REVIEW_SECTIONS,
+  SECTION_BY_STAGE,
+  sectionAwaitingApproval,
+  sectionStatus,
+} from "@/features/leads/sectionReview";
 import { formatWhen } from "@/lib/format";
 import { useSession } from "@/stores/session";
 import { ApiError, type UserContext } from "@/types/api";
 
-const RIM_ROLES = new Set(["RLM", "Regional Infra Manager", "Regional Infrastructure Manager"]);
+import { isApproverRole } from "@/config/leadRoles";
 
 type TrailStatus = "completed" | "current" | "upcoming";
 
@@ -34,16 +53,21 @@ type TrailStep = {
   phase: "lead" | "pbd";
 };
 
-const STEPS: TrailStep[] = [
-  { id: "site", label: "Site Verification", hint: "Onsite checks on this lead", stepCount: 5, phase: "lead" },
-  { id: "property", label: "Property Verification", hint: "Address, floor, and area", stepCount: 5, phase: "lead" },
-  { id: "rent", label: "Rent Negotiation", hint: "Commercial terms", stepCount: 6, phase: "lead" },
-  { id: "legal", label: "Legal Clearance", hint: "After manager approval", stepCount: 6, phase: "lead" },
-  { id: "vaastu", label: "Vaastu Clearance", hint: "Later approval level", stepCount: 6, phase: "pbd" },
-  { id: "design", label: "Design Clearance", hint: "Later approval level", stepCount: 6, phase: "pbd" },
-  { id: "ll", label: "LL Agreement & Scope of Work", hint: "Later approval level", stepCount: 6, phase: "pbd" },
-  { id: "infra", label: "Infra Readiness", hint: "Later approval level", stepCount: 6, phase: "pbd" },
-];
+const STEPS: TrailStep[] = (
+  [
+    { id: "site", label: "Site Verification", hint: "Onsite checks on this lead", phase: "lead" },
+    { id: "property", label: "Property Verification", hint: "Address, floor, and area", phase: "lead" },
+    { id: "rent", label: "Rent Negotiation", hint: "Commercial terms", phase: "lead" },
+    { id: "legal", label: "Legal Clearance", hint: "After manager approval", phase: "lead" },
+    { id: "vaastu", label: "Vaastu Clearance", hint: "Later approval level", phase: "pbd" },
+    { id: "design", label: "Design Clearance", hint: "Later approval level", phase: "pbd" },
+    { id: "ll", label: "LL Agreement & Scope of Work", hint: "Later approval level", phase: "pbd" },
+    { id: "infra", label: "Infra Readiness", hint: "Later approval level", phase: "pbd" },
+  ] as const
+).map((step) => ({
+  ...step,
+  stepCount: TRAIL_SUBSTEP_LABELS[step.id].length,
+}));
 
 const PROPERTY_ICONS: Record<PropertyVerificationModuleId, LucideIcon> = {
   property: Building2,
@@ -57,14 +81,6 @@ function trailMark(reviewStatus: string): TrailStatus {
   if (reviewStatus === "Completed") return "completed";
   if (reviewStatus === "Submitted" || reviewStatus === "Re-Work" || reviewStatus === "In Progress") return "current";
   return "upcoming";
-}
-
-function statusLabel(reviewStatus: string) {
-  if (reviewStatus === "Completed") return "Completed";
-  if (reviewStatus === "Submitted") return "Submitted";
-  if (reviewStatus === "Re-Work") return "Re-Work";
-  if (reviewStatus === "In Progress") return "In-Progress";
-  return "Pending";
 }
 
 function text(value: unknown) {
@@ -91,12 +107,12 @@ function personLabel(value: string) {
 }
 
 function siteApproval(lead: Record<string, unknown>, user: UserContext | null, captured: string) {
-  const row = milestoneOf(lead, "Site Verification");
+  const row = milestoneOf(lead, "Onsite Vetting");
   const approved = (row?.status || "") === "Completed";
   const when = approved ? text(row?.updated_on) : "";
   if (captured === RIBP_ROLE) {
     return {
-      role: "Regional Infra Manager",
+      role: "RB Manager",
       name: approved ? personLabel(text(row?.approved_by)) || "Approved" : "Pending approval",
       when,
       done: approved,
@@ -127,12 +143,14 @@ function CheckMark({ done }: { done: boolean }) {
 export function ApprovalDeskPage() {
   const { id = "" } = useParams();
   const name = decodeURIComponent(id);
-  const navigate = useNavigate();
+  const goBackInApp = useSmartBack(`/chola360/leads/${encodeURIComponent(name)}`);
   const queryClient = useQueryClient();
   const sessionUser = useSession((state) => state.user);
   const activeRole = useSession((state) => state.activeRole);
   const [comment, setComment] = useState("");
   const [approvedOpen, setApprovedOpen] = useState(false);
+  const [reworkOpen, setReworkOpen] = useState(false);
+  const [reworkError, setReworkError] = useState("");
   const [params] = useSearchParams();
   const [selected, setSelected] = useState<string | null>(params.get("stage"));
 
@@ -159,7 +177,7 @@ export function ApprovalDeskPage() {
     if (!detail.data) return [];
     const row = detail.data as Record<string, unknown>;
     return STEPS.map((step) => {
-      const reviewStatus = sectionStatus(row, step.label);
+      const reviewStatus = sectionStatus(row, SECTION_BY_STAGE[step.id] || step.label);
       return {
         ...step,
         reviewStatus,
@@ -181,29 +199,53 @@ export function ApprovalDeskPage() {
   const roleNow = workingRole(activeRole, sessionUser);
   const captured = text(lead.location_captured_by_role) || (roleNow === ARBM_ROLE || roleNow === RIBP_ROLE ? roleNow : "");
   const selfApprove = captured === ARBM_ROLE && roleNow === ARBM_ROLE;
-  const rimApprove = captured === RIBP_ROLE && RIM_ROLES.has(roleNow);
-  const canApprove = selfApprove || rimApprove;
+  const isRim = isApproverRole(roleNow, sessionUser);
+  const canApprove = selfApprove || isRim;
   const closed = state === "Rejected";
-  const section = SECTION_BY_STAGE[activeId] || "Site Verification";
+  const section = SECTION_BY_STAGE[activeId] || "Onsite Vetting";
   const reviewStatus = sectionStatus(lead, section);
   const fieldsLocked = reviewStatus === "Completed";
   const sectionApprover = milestoneOf(lead, section)?.approved_by || "";
-  const canRework = fieldsLocked && isSectionApprover(sessionUser?.user || "", sectionApprover);
+  const inputsLocked = fieldsLocked || !canEditLeadFields(sessionUser, lead);
+  const canRework =
+    canApprove &&
+    (reviewStatus === "Submitted" ||
+      reviewStatus === "Completed" ||
+      reviewStatus === "In Progress" ||
+      ((section === "Onsite Vetting" || section === "Site Verification") && (reviewStatus === "Pending" || !reviewStatus)));
+  const showAwaiting = sectionAwaitingApproval(lead, section) && !canApprove;
   const stageHint = closed
     ? "This lead is Rejected."
     : fieldsLocked
-      ? `Approved by ${personLabel(sectionApprover) || "the approver"}. Fields in this section stay locked until that approver sends it for re-work.`
-      : "Submit for approval records this section only. It does not change the lead status.";
+      ? `Approved by ${personLabel(sectionApprover) || "the approver"}. Fields stay locked until that approver sends Re-Work to the Regional Infra Business Partner.`
+      : showAwaiting
+        ? "This section is awaiting approval. Fields stay locked until the RB Manager reviews it."
+        : "Submit for approval records this section only. It does not change the lead status.";
 
-  async function onStageAction(kind: StageAction) {
+  async function onStageAction(
+    kind: StageAction,
+    payload?: { checks?: Record<string, unknown>; values?: Record<string, unknown> },
+  ) {
     if (kind === "reject") {
       await action.mutateAsync({ name, action: "Reject", comment });
       return;
     }
-    const sectionAction = kind === "submit" ? "Submit" : kind === "approve" ? "Approve" : "Re-Work";
-    await review.mutateAsync({ name, section, action: sectionAction, comment });
+    if (kind === "rework") {
+      setReworkError("");
+      setReworkOpen(true);
+      return;
+    }
+    const sectionAction = kind === "submit" ? "Submit" : "Approve";
+    await review.mutateAsync({
+      name,
+      section,
+      action: sectionAction,
+      comment,
+      checks: payload?.checks,
+      values: payload?.values,
+    });
   }
-  const siteApproved = sectionStatus(lead, "Site Verification") === "Completed";
+  const siteApproved = sectionStatus(lead, "Onsite Vetting") === "Completed";
   const approval = siteApproval(lead, sessionUser, captured);
   const mapValue = mapValueOf(lead);
   const lat = text(lead.geo_latitude);
@@ -218,7 +260,7 @@ export function ApprovalDeskPage() {
       setSelected(null);
       return;
     }
-    navigate(-1);
+    goBackInApp();
   }
 
   return (
@@ -252,13 +294,13 @@ export function ApprovalDeskPage() {
               type="button"
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-ims-ink ring-1 ring-ims-line lg:hidden"
               aria-label="Back"
-              onClick={() => navigate(-1)}
+              onClick={goBack}
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
             <h2 className="text-[13px] font-semibold text-ims-ink">History Trail</h2>
           </div>
-          <ol className="relative space-y-2">
+          <ol className="relative space-y-2.5">
             <span
               aria-hidden
               className={`pointer-events-none absolute bottom-4 left-[11px] top-4 w-0.5 ${siteApproved ? "bg-emerald-200" : "bg-slate-200"}`}
@@ -267,6 +309,7 @@ export function ApprovalDeskPage() {
               const open = step.id === activeId;
               const done = step.status === "completed";
               const current = step.status === "current";
+              const subSteps = resolveTrailSubSteps(step.id as HistoryTrailStageId, lead);
               return (
                 <li key={step.id} className="relative pl-8">
                   <span
@@ -282,45 +325,35 @@ export function ApprovalDeskPage() {
                   >
                     <CheckMark done={done} />
                   </span>
-                  <button
-                    type="button"
-                    aria-expanded={open}
-                    aria-current={open ? "true" : undefined}
-                    onClick={() => setSelected(step.id)}
-                    className={[
-                      "flex w-full items-center gap-2 rounded-xl border bg-white px-3 py-2 text-left shadow-[0_6px_18px_rgba(15,23,42,0.05)]",
-                      open ? "border-ims-primary/30 ring-1 ring-ims-primary/20" : "border-slate-200/90",
-                    ].join(" ")}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[12px] font-semibold leading-snug text-ims-ink">{step.label}</span>
-                      <span className="mt-0.5 block text-[11px] text-slate-500">{statusLabel(step.reviewStatus)}</span>
-                    </span>
-                    <ChevronRight className={`h-4 w-4 shrink-0 text-slate-400 ${open ? "text-ims-primary" : ""}`} />
-                  </button>
-                  {step.id === "site" ? (
-                    <div className="mt-2 rounded-2xl border border-slate-200/90 bg-white px-3 py-2.5">
-                      <div className="flex items-start gap-2.5">
-                        <span
-                          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-                            approval.done ? "bg-emerald-500 text-white" : "border-2 border-ims-primary bg-white"
-                          }`}
-                        >
-                          {approval.done ? <CheckMark done /> : null}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[12px] font-semibold text-ims-ink">{approval.role}</span>
-                          <span className="mt-0.5 block truncate text-[11px] text-slate-600">{approval.name}</span>
-                          {approval.when ? (
-                            <span className="mt-0.5 block text-[11px] text-slate-400">{formatWhen(approval.when)}</span>
-                          ) : null}
-                        </span>
-                      </div>
-                    </div>
-                  ) : null}
-                  {open && step.id !== "site" ? (
-                    <p className="mt-2 hidden px-1 text-[12px] leading-relaxed text-slate-500 lg:block">{step.hint}</p>
-                  ) : null}
+                  <HistoryTrailStageCard
+                    title={step.label}
+                    subtitle={trailSubtitle(step.reviewStatus, step.stepCount)}
+                    open={open}
+                    steps={subSteps}
+                    onToggle={() => setSelected(step.id)}
+                    footer={
+                      step.id === "site" ? (
+                        <div className="flex items-start gap-2.5">
+                          <span
+                            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                              approval.done ? "bg-emerald-500 text-white" : "border-2 border-ims-primary bg-white"
+                            }`}
+                          >
+                            {approval.done ? <CheckMark done /> : null}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[12px] font-semibold text-ims-ink">{approval.role}</span>
+                            <span className="mt-0.5 block truncate text-[11px] text-slate-600">{approval.name}</span>
+                            {approval.when ? (
+                              <span className="mt-0.5 block text-[11px] text-slate-400">{formatWhen(approval.when)}</span>
+                            ) : null}
+                          </span>
+                        </div>
+                      ) : open ? (
+                        <p className="text-[11px] leading-relaxed text-slate-500">{step.hint}</p>
+                      ) : null
+                    }
+                  />
                 </li>
               );
             })}
@@ -358,7 +391,11 @@ export function ApprovalDeskPage() {
           </dl>
         </div>
 
-        {activeId === "property" ? (
+        {showAwaiting ? (
+          <div className="ims-card overflow-hidden">
+            <SectionAwaitingApproval lead={lead} sectionLabel={section} />
+          </div>
+        ) : activeId === "property" ? (
           <PropertyVerificationPanel
             name={name}
             lead={lead}
@@ -368,14 +405,17 @@ export function ApprovalDeskPage() {
             busy={action.isPending || review.isPending}
             locked={closed}
             fieldsLocked={fieldsLocked}
+            inputsLocked={inputsLocked}
             canRework={canRework}
             approveDisabled={!canApprove}
-            approveTitle={canApprove ? undefined : "A Regional Infra Manager approves this lead."}
+            approveTitle={canApprove ? undefined : "An RB Manager approves this lead."}
             onAction={onStageAction}
+            onRequestRework={() => {
+              setReworkError("");
+              setReworkOpen(true);
+            }}
           />
-        ) : null}
-
-        {activeId === "property" ? null : (
+        ) : (
           <LeadVerificationForm
             name={name}
             lead={lead}
@@ -386,13 +426,41 @@ export function ApprovalDeskPage() {
             busy={action.isPending || review.isPending}
             locked={closed}
             fieldsLocked={fieldsLocked}
+            inputsLocked={inputsLocked}
             canRework={canRework}
             approveDisabled={!canApprove}
-            approveTitle={canApprove ? undefined : "A Regional Infra Manager approves this lead."}
+            approveTitle={canApprove ? undefined : "An RB Manager approves this lead."}
             onAction={onStageAction}
+            onRequestRework={() => {
+              setReworkError("");
+              setReworkOpen(true);
+            }}
           />
         )}
       </div>
+      <PropertyReworkSheet
+        open={reworkOpen}
+        propertyId={propertyId}
+        location={text(lead.location_details)}
+        ribpName={text(lead.ribp_full_name)}
+        ribpCode={text(lead.ribp_employee_code)}
+        sections={REVIEW_SECTIONS}
+        defaultSection={section}
+        pending={review.isPending}
+        error={reworkError}
+        onCancel={() => {
+          if (!review.isPending) setReworkOpen(false);
+        }}
+        onSend={(remarks, nextSection) => {
+          setReworkError("");
+          void review
+            .mutateAsync({ name, section: nextSection || section, action: "Re-Work", comment: remarks })
+            .then(() => setReworkOpen(false))
+            .catch((err: unknown) => {
+              setReworkError(err instanceof ApiError ? err.message : "Could not send this section for re-work.");
+            });
+        }}
+      />
       <LeadCreatedSuccessSheet
         open={approvedOpen}
         variant="approved"
@@ -417,6 +485,7 @@ function PropertyVerificationPanel({
   approveDisabled,
   approveTitle,
   onAction,
+  onRequestRework,
 }: {
   name: string;
   lead: Record<string, unknown>;
@@ -428,10 +497,15 @@ function PropertyVerificationPanel({
   fieldsLocked?: boolean;
   canRework?: boolean;
   approveDisabled: boolean;
+  onRequestRework?: () => void;
   approveTitle?: string;
-  onAction: (action: StageAction) => Promise<void>;
+  onAction: (
+    action: StageAction,
+    payload?: { checks?: Record<string, unknown>; values?: Record<string, unknown> },
+  ) => Promise<void>;
 }) {
   const [error, setError] = useState("");
+  const canSubmit = useCanSubmitLeadSection(lead);
   const completed = countCompletedPropertyVerificationModules(lead);
   async function run(action: StageAction) {
     setError("");
@@ -443,8 +517,9 @@ function PropertyVerificationPanel({
   }
   return (
     <section className="space-y-3">
+      <SitePhotoGallery lead={lead} />
       <div>
-        <h2 className="text-[13px] font-semibold text-ims-ink">Site Verification Steps - Optional</h2>
+        <h2 className="text-[13px] font-semibold text-ims-ink">Property Verification Steps</h2>
         <p className="mt-1 text-xs text-slate-500">
           {completed} of {PROPERTY_VERIFICATION_MODULES.length} steps done. Open whichever step is still pending.
         </p>
@@ -489,9 +564,11 @@ function PropertyVerificationPanel({
         />
         {error ? <p className="text-sm text-rose-600">{error}</p> : null}
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="ims-btn-secondary" disabled={locked || fieldsLocked || busy} onClick={() => void run("submit")}>
-            Submit for approval
-          </button>
+          {canSubmit ? (
+            <button type="button" className="ims-btn-secondary" disabled={locked || fieldsLocked || busy} onClick={() => void run("submit")}>
+              Submit for approval
+            </button>
+          ) : null}
           <button
             type="button"
             className="ims-btn-primary disabled:opacity-50"
@@ -505,8 +582,12 @@ function PropertyVerificationPanel({
             type="button"
             className="ims-btn-secondary"
             disabled={locked || busy || !canRework}
-            title={canRework ? "Send this section for re-work" : "Only the approver who approved this section can send it for re-work"}
-            onClick={() => void run("rework")}
+            title={
+              canRework
+                ? "Send this section back to the Regional Infra Business Partner for re-work"
+                : "An RB Manager can send this section for re-work after it is submitted"
+            }
+            onClick={() => (onRequestRework ? onRequestRework() : void run("rework"))}
           >
             Re-Work
           </button>
